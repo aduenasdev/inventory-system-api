@@ -22,12 +22,6 @@ async function main() {
     )
   `);
 
-  // Agregar columna last_login si no existe
-  await db.execute(sql`
-    ALTER TABLE users 
-    ADD COLUMN IF NOT EXISTS last_login TIMESTAMP NULL
-  `);
-
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS permissions (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -70,7 +64,7 @@ async function main() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS warehouses (
       id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
+      name VARCHAR(255) NOT NULL UNIQUE,
       provincia VARCHAR(100) NOT NULL,
       municipio VARCHAR(100) NOT NULL,
       direccion TEXT,

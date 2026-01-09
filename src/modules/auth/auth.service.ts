@@ -77,14 +77,9 @@ export async function registerUser(data: RegisterUserInput) {
 export async function loginUser(data: LoginUserInput) {
   const { email, password } = data.body;
 
-  console.log('Login attempt:', { email, password });
-
   try {
     const result = await db.select().from(users).where(eq(users.email, email));
-    //console.log('Query result:', result);
     const [user] = result;
-
-   // console.log('User found:', user);
 
     if (!user) {
       throw new Error("Invalid email or password");
@@ -138,7 +133,6 @@ export async function loginUser(data: LoginUserInput) {
       refreshToken,
     };
   } catch (error) {
-    console.error('Login error:', error);
     throw error;
   }
 }

@@ -2,7 +2,7 @@ import { mysqlTable, serial, varchar, text } from "drizzle-orm/mysql-core";
 
 export const warehouses = mysqlTable("warehouses", {
   id: serial("id").primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull().unique(),
   provincia: varchar("provincia", { length: 100 }).notNull(),
   municipio: varchar("municipio", { length: 100 }).notNull(),
   direccion: text("direccion"),

@@ -16,12 +16,14 @@ export async function createWarehouse(data: {
 }
 
 export async function getAllWarehouses() {
-  return db.select().from(warehouses);
+  const allWarehouses = await db.select().from(warehouses);
+  return allWarehouses;
 }
 
 export async function getWarehouseById(warehouseId: number) {
   const rows = await db.select().from(warehouses).where(eq(warehouses.id, warehouseId));
-  return rows[0] || null;
+  const warehouse = rows[0] || null;
+  return warehouse;
 }
 
 export async function updateWarehouse(
