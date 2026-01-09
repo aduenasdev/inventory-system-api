@@ -9,7 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { generateTokens } from "../../utils/jwt";
-import { RegisterUserInput, LoginUserInput } from "./auth.schemas";
+import { RegisterUserInput, LoginUserInput, ChangePasswordInput } from "./auth.schemas";
 
 export async function registerUser(data: RegisterUserInput) {
   const { email, password } = data;
@@ -169,4 +169,30 @@ export async function refreshTokenService(token: string) {
   } catch (error) {
     throw new Error("Invalid or expired refresh token");
   }
+}
+
+export async function changePassword(userId: number, data: ChangePasswordInput) {
+  const { currentPassword, newPassword } = data.body;
+
+  // Get user from database
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+
+  if (!user) {
+    throw new Error("Usuario no encontrado");
+  }
+
+  // Verify current password
+  const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+
+  if (!isPasswordValid) {
+    throw new Error("La contraseña actual es incorrecta");
+  }
+
+  // Hash new password
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+  // Update password
+  await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+
+  return { message: "Contraseña actualizada exitosamente" };
 }

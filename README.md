@@ -190,11 +190,12 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 
 > [📖 Documentación completa con ejemplos CURL en context.md](context.md)
 
-### 📁 Auth (4 endpoints)
+### 📁 Auth (5 endpoints)
 - `POST /auth/login` - Iniciar sesión
 - `POST /auth/refresh` - Renovar access token
 - `POST /auth/logout` - Cerrar sesión
 - `GET /auth/me` - Obtener usuario autenticado
+- `PUT /auth/change-password` - Cambiar contraseña propia (sin permisos)
 
 ### 👥 Users (7 endpoints)
 - `GET /users` - Listar usuarios (requiere `users.read`)
@@ -226,7 +227,7 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 - `POST /warehouses/:id/users` - Asignar usuarios al almacén
 - `DELETE /warehouses/:id/users/:userId` - Remover usuario del almacén
 
-**Total: 26 endpoints**
+**Total: 27 endpoints**
 
 ---
 

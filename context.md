@@ -209,6 +209,30 @@ curl -X GET http://localhost:3000/auth/me \
 }
 ```
 
+#### `PUT /auth/change-password` (privado, sin permisos especiales)
+Permite que cualquier usuario autenticado cambie su propia contraseña sin necesitar permisos de administrador.
+```bash
+curl -X PUT http://localhost:3000/auth/change-password \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "currentPassword": "password123",
+    "newPassword": "NewSecure456"
+  }'
+```
+**Validaciones:**
+- `currentPassword`: Requerida, debe coincidir con la contraseña actual del usuario
+- `newPassword`: Mínimo 6 caracteres, al menos 1 mayúscula, 1 minúscula, 1 número
+
+**Respuesta:**
+```json
+{
+  "message": "Contraseña actualizada exitosamente"
+}
+```
+
+**Nota importante**: Este endpoint es para que los usuarios cambien su propia contraseña. Para que un administrador cambie la contraseña de otro usuario, usar `PUT /users/:id` con el permiso `users.update`.
+
 ---
 
 ### Users

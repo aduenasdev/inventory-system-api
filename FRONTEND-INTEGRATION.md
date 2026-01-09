@@ -206,7 +206,55 @@ const canCreateUsers = user.permissions.includes('users.create');
 
 ---
 
+### 1.5 PUT /auth/change-password
+**Descripción**: Cambiar contraseña del usuario autenticado (sin permisos especiales)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: Solo autenticación (cualquier usuario)
+
+**Request Body**:
+```json
+{
+  "currentPassword": "OldPass123",
+  "newPassword": "NewSecure456"
+}
+```
+
+**Validaciones**:
+- currentPassword: requerida
+- newPassword: min 6 caracteres, 1 mayúscula, 1 minúscula, 1 número
+
+**Response Success (200)**:
+```json
+{
+  "message": "Contraseña actualizada exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Formulario con campos: Contraseña actual, Nueva contraseña, Confirmar nueva
+2. Validar que nueva contraseña cumple requisitos
+3. Validar que nueva contraseña coincida con confirmación
+4. Enviar PUT a `/auth/change-password`
+5. Mostrar mensaje de éxito
+6. Opcional: Cerrar sesión y pedir login con nueva contraseña
+
+**Manejo de Errores**:
+- 400: Contraseña actual incorrecta → "La contraseña actual no coincide"
+- 400: Nueva contraseña no cumple requisitos → Mostrar requisitos específicos
+
+**Ventajas**:
+- ✅ Cualquier usuario puede cambiar su propia contraseña
+- ✅ No requiere permisos de administrador
+- ✅ Valida contraseña actual por seguridad
+- ✅ Mismo nivel de validación que creación de usuarios
+
+---
+
 ## 👥 2. USERS MODULE
+
+**Nota importante**: Para que un usuario cambie SU PROPIA contraseña, usar `PUT /auth/change-password`. El endpoint `PUT /users/:id` es solo para administradores con el permiso `users.update`.
 
 ### 2.1 GET /users
 **Descripción**: Listar todos los usuarios
