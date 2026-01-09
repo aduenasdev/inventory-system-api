@@ -42,7 +42,13 @@ Este documento resume la configuración, estructura, endpoints y la lógica de n
 │  │     ├─ user_roles.ts
 │  │     ├─ refresh_tokens.ts
 │  │     ├─ warehouses.ts
-│  │     └─ user_warehouses.ts
+│  │     ├─ user_warehouses.ts
+│  │     ├─ units.ts
+│  │     ├─ currencies.ts
+│  │     ├─ exchange_rates.ts
+│  │     ├─ categories.ts
+│  │     ├─ products.ts
+│  │     └─ payment_types.ts
 │  └─ modules/
 │     ├─ auth/
 │     │  ├─ auth.routes.ts
@@ -63,11 +69,41 @@ Este documento resume la configuración, estructura, endpoints y la lógica de n
 │     │  ├─ permissions.routes.ts
 │     │  ├─ permissions.controller.ts
 │     │  └─ permissions.service.ts
-│     └─ warehouses/
-│        ├─ warehouses.routes.ts
-│        ├─ warehouses.controller.ts
-│        ├─ warehouses.service.ts
-│        └─ warehouses.schemas.ts
+│     ├─ warehouses/
+│     │  ├─ warehouses.routes.ts
+│     │  ├─ warehouses.controller.ts
+│     │  ├─ warehouses.service.ts
+│     │  └─ warehouses.schemas.ts
+│     ├─ units/
+│     │  ├─ units.routes.ts
+│     │  ├─ units.controller.ts
+│     │  ├─ units.service.ts
+│     │  └─ units.schemas.ts
+│     ├─ currencies/
+│     │  ├─ currencies.routes.ts
+│     │  ├─ currencies.controller.ts
+│     │  ├─ currencies.service.ts
+│     │  └─ currencies.schemas.ts
+│     ├─ exchange_rates/
+│     │  ├─ exchange_rates.routes.ts
+│     │  ├─ exchange_rates.controller.ts
+│     │  ├─ exchange_rates.service.ts
+│     │  └─ exchange_rates.schemas.ts
+│     ├─ categories/
+│     │  ├─ categories.routes.ts
+│     │  ├─ categories.controller.ts
+│     │  ├─ categories.service.ts
+│     │  └─ categories.schemas.ts
+│     ├─ products/
+│     │  ├─ products.routes.ts
+│     │  ├─ products.controller.ts
+│     │  ├─ products.service.ts
+│     │  └─ products.schemas.ts
+│     └─ payment_types/
+│        ├─ payment_types.routes.ts
+│        ├─ payment_types.controller.ts
+│        ├─ payment_types.service.ts
+│        └─ payment_types.schemas.ts
 ```
 
 ## Variables de entorno (.env)
@@ -123,7 +159,7 @@ Este documento resume la configuración, estructura, endpoints y la lógica de n
     - Permisos estandarizados: users (CRUD), warehouses (CRUD), roles (CRUD), asociaciones.
     - Asigna todos los permisos al rol `admin`.
 - Esquemas (Drizzle):
-  - [src/db/schema/users.ts](src/db/schema/users.ts): `id`, `email`, `password`, `createdAt`, `lastLogin`.
+  - [src/db/schema/users.ts](src/db/schema/users.ts): `id`, `email`, `password`, `nombre`, `apellido`, `telefono`, `enabled`, `createdAt`, `lastLogin`.
   - [src/db/schema/roles.ts](src/db/schema/roles.ts): `id`, `name` (único), `description`.
   - [src/db/schema/permissions.ts](src/db/schema/permissions.ts): `id`, `name` (único), `description`, `group_name`.
   - [src/db/schema/warehouses.ts](src/db/schema/warehouses.ts): `id`, `name`, `provincia`, `municipio`, `direccion`, `ubicacion`.
@@ -150,7 +186,7 @@ Este documento resume la configuración, estructura, endpoints y la lógica de n
 - Schemas: [src/modules/auth/auth.schemas.ts](src/modules/auth/auth.schemas.ts)
 
 #### `POST /auth/login` (público)
-Inicia sesión y actualiza `lastLogin`.
+Inicia sesión, valida que el usuario esté habilitado y actualiza `lastLogin`.
 ```bash
 curl -X POST http://localhost:3000/auth/login \
   -H "Content-Type: application/json" \
@@ -174,6 +210,10 @@ curl -X POST http://localhost:3000/auth/login \
   "refreshToken": "eyJhbGc..."
 }
 ```
+
+**Errores posibles:**
+- 400: "Usuario deshabilitado. Contacte al administrador" (si `enabled = false`)
+- 401: "Invalid email or password"
 
 #### `POST /auth/refresh` (público)
 Rota el refresh token.
@@ -242,7 +282,7 @@ curl -X PUT http://localhost:3000/auth/change-password \
 - Schemas: [src/modules/users/users.schemas.ts](src/modules/users/users.schemas.ts)
 
 #### `POST /users` → `hasPermission("users.create")`
-Crea un usuario con roles y warehouses opcionales.
+Crea un usuario con nombre, roles y warehouses opcionales. El usuario se crea habilitado por defecto.
 ```bash
 curl -X POST http://localhost:3000/users \
   -H "Authorization: Bearer eyJhbGc..." \
@@ -250,10 +290,18 @@ curl -X POST http://localhost:3000/users \
   -d '{
     "email": "user@example.com",
     "password": "password123",
+    "nombre": "Juan",
+    "apellido": "Pérez",
+    "telefono": "809-555-0100",
     "roleIds": [2],
     "warehouseIds": [1, 2]
   }'
 ```
+**Validaciones:**
+- nombre: requerido
+- apellido, telefono: opcionales
+- enabled: se establece en true por defecto
+
 **Respuesta:**
 ```json
 {
@@ -277,22 +325,46 @@ curl -X GET http://localhost:3000/users/1 \
 ```
 
 #### `PUT /users/:userId` → `hasPermission("users.update")`
-Actualiza un usuario.
+Actualiza información de un usuario (email, password, nombre, apellido, telefono).
 ```bash
 curl -X PUT http://localhost:3000/users/2 \
   -H "Authorization: Bearer eyJhbGc..." \
   -H "Content-Type: application/json" \
   -d '{
     "email": "newemail@example.com",
-    "password": "newpassword123"
+    "password": "newpassword123",
+    "nombre": "Juan Carlos",
+    "apellido": "Rodríguez",
+    "telefono": "829-555-0200"
   }'
 ```
+**Nota**: Todos los campos son opcionales. Para habilitar/deshabilitar usar los endpoints específicos.
+```
 
-#### `DELETE /users/:userId` → `hasPermission("users.delete")`
-Elimina un usuario (cascade elimina relaciones).
+#### `PUT /users/:userId/disable` → `hasPermission("users.delete")`
+Deshabilita un usuario (soft delete). El usuario no podrá hacer login pero se mantiene en BD.
 ```bash
-curl -X DELETE http://localhost:3000/users/2 \
+curl -X PUT http://localhost:3000/users/2/disable \
   -H "Authorization: Bearer eyJhbGc..."
+```
+**Respuesta:**
+```json
+{
+  "message": "Usuario deshabilitado"
+}
+```
+
+#### `PUT /users/:userId/enable` → `hasPermission("users.update")`
+Habilita un usuario previamente deshabilitado.
+```bash
+curl -X PUT http://localhost:3000/users/2/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+**Respuesta:**
+```json
+{
+  "message": "Usuario habilitado"
+}
 ```
 
 #### `POST /users/:userId/roles` → `isRole("admin")`
@@ -520,18 +592,402 @@ curl -X GET http://localhost:3000/warehouses/1/users \
 
 ---
 
+## Units (Unidades de Medida)
+- Router: [src/modules/units/units.routes.ts](src/modules/units/units.routes.ts)
+- Controller: [src/modules/units/units.controller.ts](src/modules/units/units.controller.ts)
+- Service: [src/modules/units/units.service.ts](src/modules/units/units.service.ts)
+- Schemas: [src/modules/units/units.schemas.ts](src/modules/units/units.schemas.ts)
+
+#### `GET /units` → `hasPermission("units.read")`
+Lista todas las unidades de medida activas.
+```bash
+curl -X GET http://localhost:3000/units \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /units/:id` → `hasPermission("units.read")`
+Obtiene una unidad por ID.
+```bash
+curl -X GET http://localhost:3000/units/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /units` → `hasPermission("units.create")`
+Crea una nueva unidad de medida.
+```bash
+curl -X POST http://localhost:3000/units \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Kilogramo",
+    "shortName": "kg",
+    "description": "Unidad de masa del SI",
+    "type": "weight"
+  }'
+```
+
+#### `PUT /units/:id` → `hasPermission("units.update")`
+Actualiza una unidad existente.
+```bash
+curl -X PUT http://localhost:3000/units/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Unidad de masa del Sistema Internacional"
+  }'
+```
+
+#### `PUT /units/:id/disable` → `hasPermission("units.delete")`
+Deshabilita una unidad (soft delete).
+```bash
+curl -X PUT http://localhost:3000/units/1/disable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `PUT /units/:id/enable` → `hasPermission("units.update")`
+Habilita una unidad previamente deshabilitada.
+```bash
+curl -X PUT http://localhost:3000/units/1/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
+## Currencies (Monedas)
+- Router: [src/modules/currencies/currencies.routes.ts](src/modules/currencies/currencies.routes.ts)
+- Controller: [src/modules/currencies/currencies.controller.ts](src/modules/currencies/currencies.controller.ts)
+- Service: [src/modules/currencies/currencies.service.ts](src/modules/currencies/currencies.service.ts)
+- Schemas: [src/modules/currencies/currencies.schemas.ts](src/modules/currencies/currencies.schemas.ts)
+
+#### `GET /currencies` → `hasPermission("currencies.read")`
+Lista todas las monedas activas. Seeds: USD y CUP (Peso Cubano).
+```bash
+curl -X GET http://localhost:3000/currencies \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /currencies/:id` → `hasPermission("currencies.read")`
+Obtiene una moneda por ID.
+```bash
+curl -X GET http://localhost:3000/currencies/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /currencies` → `hasPermission("currencies.create")`
+Crea una nueva moneda.
+```bash
+curl -X POST http://localhost:3000/currencies \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Euro",
+    "code": "EUR",
+    "symbol": "€",
+    "decimalPlaces": 2
+  }'
+```
+
+#### `PUT /currencies/:id` → `hasPermission("currencies.update")`
+Actualiza una moneda existente.
+```bash
+curl -X PUT http://localhost:3000/currencies/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "US$"
+  }'
+```
+
+#### `PUT /currencies/:id/disable` → `hasPermission("currencies.delete")`
+Deshabilita una moneda (soft delete).
+```bash
+curl -X PUT http://localhost:3000/currencies/1/disable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `PUT /currencies/:id/enable` → `hasPermission("currencies.update")`
+Habilita una moneda previamente deshabilitada.
+```bash
+curl -X PUT http://localhost:3000/currencies/1/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
+## Exchange Rates (Tasas de Cambio)
+- Router: [src/modules/exchange_rates/exchange_rates.routes.ts](src/modules/exchange_rates/exchange_rates.routes.ts)
+- Controller: [src/modules/exchange_rates/exchange_rates.controller.ts](src/modules/exchange_rates/exchange_rates.controller.ts)
+- Service: [src/modules/exchange_rates/exchange_rates.service.ts](src/modules/exchange_rates/exchange_rates.service.ts)
+- Schemas: [src/modules/exchange_rates/exchange_rates.schemas.ts](src/modules/exchange_rates/exchange_rates.schemas.ts)
+
+#### `GET /exchange-rates` → `hasPermission("exchange_rates.read")`
+Lista todas las tasas de cambio.
+```bash
+curl -X GET http://localhost:3000/exchange-rates \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /exchange-rates/:id` → `hasPermission("exchange_rates.read")`
+Obtiene una tasa de cambio por ID.
+```bash
+curl -X GET http://localhost:3000/exchange-rates/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /exchange-rates/latest/:from/:to` → `hasPermission("exchange_rates.read")`
+Obtiene la última tasa de cambio entre dos monedas.
+```bash
+curl -X GET http://localhost:3000/exchange-rates/latest/1/2 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /exchange-rates` → `hasPermission("exchange_rates.create")`
+Crea una nueva tasa de cambio. Solo se permite una tasa por combinación de monedas por día.
+```bash
+curl -X POST http://localhost:3000/exchange-rates \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fromCurrencyId": 1,
+    "toCurrencyId": 2,
+    "rate": 120.50,
+    "date": "2026-01-09"
+  }'
+```
+
+#### `PUT /exchange-rates/:id` → `hasPermission("exchange_rates.update")`
+Actualiza una tasa de cambio existente.
+```bash
+curl -X PUT http://localhost:3000/exchange-rates/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rate": 125.00
+  }'
+```
+
+#### `DELETE /exchange-rates/:id` → `hasPermission("exchange_rates.delete")`
+Elimina una tasa de cambio.
+```bash
+curl -X DELETE http://localhost:3000/exchange-rates/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
+## Categories (Categorías)
+- Router: [src/modules/categories/categories.routes.ts](src/modules/categories/categories.routes.ts)
+- Controller: [src/modules/categories/categories.controller.ts](src/modules/categories/categories.controller.ts)
+- Service: [src/modules/categories/categories.service.ts](src/modules/categories/categories.service.ts)
+- Schemas: [src/modules/categories/categories.schemas.ts](src/modules/categories/categories.schemas.ts)
+
+#### `GET /categories` → `hasPermission("categories.read")`
+Lista todas las categorías activas.
+```bash
+curl -X GET http://localhost:3000/categories \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /categories/:id` → `hasPermission("categories.read")`
+Obtiene una categoría por ID.
+```bash
+curl -X GET http://localhost:3000/categories/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /categories` → `hasPermission("categories.create")`
+Crea una nueva categoría.
+```bash
+curl -X POST http://localhost:3000/categories \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Electrónica",
+    "description": "Productos electrónicos y tecnológicos"
+  }'
+```
+
+#### `PUT /categories/:id` → `hasPermission("categories.update")`
+Actualiza una categoría existente.
+```bash
+curl -X PUT http://localhost:3000/categories/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Dispositivos electrónicos y accesorios"
+  }'
+```
+
+#### `PUT /categories/:id/disable` → `hasPermission("categories.delete")`
+Deshabilita una categoría (soft delete).
+```bash
+curl -X PUT http://localhost:3000/categories/1/disable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `PUT /categories/:id/enable` → `hasPermission("categories.update")`
+Habilita una categoría previamente deshabilitada.
+```bash
+curl -X PUT http://localhost:3000/categories/1/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
+## Products (Productos)
+- Router: [src/modules/products/products.routes.ts](src/modules/products/products.routes.ts)
+- Controller: [src/modules/products/products.controller.ts](src/modules/products/products.controller.ts)
+- Service: [src/modules/products/products.service.ts](src/modules/products/products.service.ts)
+- Schemas: [src/modules/products/products.schemas.ts](src/modules/products/products.schemas.ts)
+
+#### `GET /products` → `hasPermission("products.read")`
+Lista todos los productos activos.
+```bash
+curl -X GET http://localhost:3000/products \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /products/:id` → `hasPermission("products.read")`
+Obtiene un producto por ID.
+```bash
+curl -X GET http://localhost:3000/products/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /products/category/:categoryId` → `hasPermission("products.read")`
+Lista todos los productos de una categoría específica.
+```bash
+curl -X GET http://localhost:3000/products/category/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /products` → `hasPermission("products.create")`
+Crea un nuevo producto.
+```bash
+curl -X POST http://localhost:3000/products \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Laptop HP Pavilion",
+    "code": "LAP-HP-001",
+    "description": "Laptop 15.6 pulgadas, 8GB RAM, 256GB SSD",
+    "costPrice": 450.00,
+    "salePrice": 650.00,
+    "currencyId": 1,
+    "unitId": 1,
+    "categoryId": 1
+  }'
+```
+
+#### `PUT /products/:id` → `hasPermission("products.update")`
+Actualiza un producto existente.
+```bash
+curl -X PUT http://localhost:3000/products/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "salePrice": 699.00
+  }'
+```
+
+#### `PUT /products/:id/disable` → `hasPermission("products.delete")`
+Deshabilita un producto (soft delete).
+```bash
+curl -X PUT http://localhost:3000/products/1/disable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `PUT /products/:id/enable` → `hasPermission("products.update")`
+Habilita un producto previamente deshabilitado.
+```bash
+curl -X PUT http://localhost:3000/products/1/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
+## Payment Types (Tipos de Pago)
+- Router: [src/modules/payment_types/payment_types.routes.ts](src/modules/payment_types/payment_types.routes.ts)
+- Controller: [src/modules/payment_types/payment_types.controller.ts](src/modules/payment_types/payment_types.controller.ts)
+- Service: [src/modules/payment_types/payment_types.service.ts](src/modules/payment_types/payment_types.service.ts)
+- Schemas: [src/modules/payment_types/payment_types.schemas.ts](src/modules/payment_types/payment_types.schemas.ts)
+
+#### `GET /payment-types` → `hasPermission("payment_types.read")`
+Lista todos los tipos de pago activos.
+```bash
+curl -X GET http://localhost:3000/payment-types \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `GET /payment-types/:id` → `hasPermission("payment_types.read")`
+Obtiene un tipo de pago por ID.
+```bash
+curl -X GET http://localhost:3000/payment-types/1 \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `POST /payment-types` → `hasPermission("payment_types.create")`
+Crea un nuevo tipo de pago.
+```bash
+curl -X POST http://localhost:3000/payment-types \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "Efectivo",
+    "description": "Pago en efectivo"
+  }'
+```
+
+#### `PUT /payment-types/:id` → `hasPermission("payment_types.update")`
+Actualiza un tipo de pago existente.
+```bash
+curl -X PUT http://localhost:3000/payment-types/1 \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Pago en efectivo (billetes y monedas)"
+  }'
+```
+
+#### `PUT /payment-types/:id/disable` → `hasPermission("payment_types.delete")`
+Deshabilita un tipo de pago (soft delete).
+```bash
+curl -X PUT http://localhost:3000/payment-types/1/disable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+#### `PUT /payment-types/:id/enable` → `hasPermission("payment_types.update")`
+Habilita un tipo de pago previamente deshabilitado.
+```bash
+curl -X PUT http://localhost:3000/payment-types/1/enable \
+  -H "Authorization: Bearer eyJhbGc..."
+```
+
+---
+
 ## Lógica de negocio (resumen)
 - Autenticación:
   - Registro: eliminado. Los usuarios deben ser creados por un admin vía `POST /users`.
-  - Login: valida credenciales, actualiza `lastLogin`, emite tokens, responde con roles y permisos agrupados por rol.
+  - Login: valida credenciales, verifica que el usuario esté habilitado (`enabled = true`), actualiza `lastLogin`, emite tokens, responde con roles y permisos agrupados por rol.
   - Refresh: revoca el refresh token anterior y guarda el nuevo (rotación).
+- Usuarios:
+  - Campos obligatorios: email, password, nombre
+  - Campos opcionales: apellido, telefono
+  - No se eliminan físicamente: usar disable/enable para control de acceso
+  - Usuario deshabilitado no puede hacer login
 - Autorización:
   - Por roles (`isRole`) y por permisos (`hasPermission`).
   - `auth.middleware` construye `res.locals.user` con roles (por nombre) y permisos (lista plana) en base a pivotes.
-- Modelo de permisos (completo):
+- Modelo de permisos (completo - 38 permisos):
   - **Users**: `users.read`, `users.create`, `users.update`, `users.delete`, `users.roles.associate`, `users.warehouses.associate`
   - **Warehouses**: `warehouses.read`, `warehouses.create`, `warehouses.update`, `warehouses.delete`
   - **Roles**: `roles.read`, `roles.create`, `roles.update`, `roles.delete`
+  - **Units**: `units.read`, `units.create`, `units.update`, `units.delete`
+  - **Currencies**: `currencies.read`, `currencies.create`, `currencies.update`, `currencies.delete`
+  - **Exchange Rates**: `exchange_rates.read`, `exchange_rates.create`, `exchange_rates.update`, `exchange_rates.delete`
+  - **Categories**: `categories.read`, `categories.create`, `categories.update`, `categories.delete`
+  - **Products**: `products.read`, `products.create`, `products.update`, `products.delete`
+  - **Payment Types**: `payment_types.read`, `payment_types.create`, `payment_types.update`, `payment_types.delete`
   - Seed asigna todos al rol `admin`.
 - Relaciones:
   - Usuarios ↔ Roles: muchos a muchos vía `user_roles`.

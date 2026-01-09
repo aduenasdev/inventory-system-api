@@ -1,11 +1,43 @@
-import { db } from "./connection";
+import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/mysql2";
 import bcrypt from "bcrypt";
 import { sql } from "drizzle-orm";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 async function main() {
-  // Crear tablas si no existen
+  // 1. Conectar sin especificar base de datos para poder crearla
+  const connectionWithoutDb = await mysql.createConnection({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+  });
+
+  // 2. Eliminar y crear la base de datos desde cero
+  await connectionWithoutDb.execute(`DROP DATABASE IF EXISTS \`${process.env.DB_NAME}\``);
+  console.log(`Base de datos '${process.env.DB_NAME}' eliminada.`);
+  
+  await connectionWithoutDb.execute(`CREATE DATABASE \`${process.env.DB_NAME}\` CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci`);
+  console.log(`Base de datos '${process.env.DB_NAME}' creada.`);
+  
+  await connectionWithoutDb.end();
+
+  // 3. Conectar a la base de datos recién creada
+  const pool = mysql.createPool({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+  });
+
+  const db = drizzle(pool);
+
+  // 4. Crear todas las tablas
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS roles (
+    CREATE TABLE roles (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(50) NOT NULL UNIQUE,
       description TEXT
@@ -13,7 +45,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
@@ -27,7 +59,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS permissions (
+    CREATE TABLE permissions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(100) NOT NULL UNIQUE,
       description TEXT,
@@ -36,7 +68,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS role_permissions (
+    CREATE TABLE role_permissions (
       role_id INT NOT NULL,
       permission_id INT NOT NULL,
       PRIMARY KEY (role_id, permission_id),
@@ -46,7 +78,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS user_roles (
+    CREATE TABLE user_roles (
       user_id INT NOT NULL,
       role_id INT NOT NULL,
       PRIMARY KEY (user_id, role_id),
@@ -56,7 +88,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS refresh_tokens (
+    CREATE TABLE refresh_tokens (
       id INT AUTO_INCREMENT PRIMARY KEY,
       token VARCHAR(255) NOT NULL UNIQUE,
       user_id INT NOT NULL,
@@ -66,7 +98,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS warehouses (
+    CREATE TABLE warehouses (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
       provincia VARCHAR(100) NOT NULL,
@@ -77,7 +109,7 @@ async function main() {
   `);
 
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS user_warehouses (
+    CREATE TABLE user_warehouses (
       user_id INT NOT NULL,
       warehouse_id INT NOT NULL,
       PRIMARY KEY (user_id, warehouse_id),
@@ -86,48 +118,114 @@ async function main() {
     )
   `);
 
-  console.log("Tablas verificadas/creadas.");
+  await db.execute(sql`
+    CREATE TABLE units (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      short_name VARCHAR(20) NOT NULL UNIQUE,
+      description TEXT,
+      type VARCHAR(50) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 
-  // --- Seed de datos ---
+  await db.execute(sql`
+    CREATE TABLE currencies (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      code VARCHAR(10) NOT NULL UNIQUE,
+      symbol VARCHAR(10) NOT NULL,
+      decimal_places INT NOT NULL DEFAULT 2,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 
-  // 1. Crear rol de administrador si no existe
-  const [adminRole] = (await db.execute(
-    sql`SELECT id FROM roles WHERE name = 'admin'`
+  await db.execute(sql`
+    CREATE TABLE exchange_rates (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      from_currency_id INT NOT NULL,
+      to_currency_id INT NOT NULL,
+      rate DECIMAL(18, 6) NOT NULL,
+      date DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_rate_per_day (from_currency_id, to_currency_id, date),
+      FOREIGN KEY (from_currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (to_currency_id) REFERENCES currencies(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE products (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL UNIQUE,
+      code VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      cost_price DECIMAL(18, 2),
+      sale_price DECIMAL(18, 2),
+      currency_id INT NOT NULL,
+      unit_id INT NOT NULL,
+      category_id INT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (unit_id) REFERENCES units(id),
+      FOREIGN KEY (category_id) REFERENCES categories(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE payment_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  console.log("Todas las tablas creadas exitosamente.");
+
+  // 5. Seed de datos
+
+  // Crear rol de administrador
+  const [adminRoleResult] = (await db.execute(
+    sql`INSERT INTO roles (name, description) VALUES ('admin', 'Administrador con todos los privilegios')`
   )) as any[];
+  const adminRoleId = adminRoleResult.insertId;
+  console.log("Rol 'admin' creado.");
 
-  let adminRoleId;
-  if (!Array.isArray(adminRole) || adminRole.length === 0) {
-    const [result] = (await db.execute(
-      sql`INSERT INTO roles (name, description) VALUES ('admin', 'Administrador con todos los privilegios')`
-    )) as any[];
-    adminRoleId = result.insertId;
-    console.log("Rol 'admin' creado.");
-  } else {
-    adminRoleId = adminRole[0].id;
-  }
-
-  // 2. Crear usuario administrador si no existe
-  const [adminUser] = (await db.execute(
-    sql`SELECT id FROM users WHERE email = 'admin@example.com'`
+  // Crear usuario administrador
+  const hashedPassword = await bcrypt.hash("admin123", 10);
+  const [adminUserResult] = (await db.execute(
+    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@example.com"}, ${hashedPassword}, ${"Admin"})`
   )) as any[];
+  const adminUserId = adminUserResult.insertId;
+  console.log("Usuario 'admin@example.com' creado.");
 
-  if (!Array.isArray(adminUser) || adminUser.length === 0) {
-    const hashedPassword = await bcrypt.hash("admin123", 10);
-    await db.execute(
-      sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@example.com"}, ${hashedPassword}, ${"Admin"})`
-    );
-    // Map admin user to admin role in user_roles pivot
-    const [newAdmin] = (await db.execute(sql`SELECT id FROM users WHERE email = 'admin@example.com'`)) as any[];
-    const adminId = newAdmin[0]?.id;
-    if (adminId) {
-      await db.execute(sql`INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (${adminId}, ${adminRoleId})`);
-    }
-    console.log("Usuario 'admin@example.com' creado.");
-  }
+  // Asociar usuario admin con rol admin
+  await db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${adminUserId}, ${adminRoleId})`);
 
-  // 3. Poblar permisos fijos (CRUD usuarios + crear warehouses)
+  // Poblar permisos fijos
   const fixedPermissions = [
-     //adicuinar crud a users
+     // CRUD usuarios
     { name: 'users.read', description: 'Leer usuarios', group_name: 'users' },
     { name: 'users.create', description: 'Crear usuarios', group_name: 'users' },
     { name: 'users.update', description: 'Actualizar usuarios', group_name: 'users' },
@@ -135,31 +233,73 @@ async function main() {
     { name: 'users.roles.associate', description: 'Asociar roles a usuarios', group_name: 'users' },
     { name: 'users.warehouses.associate', description: 'Asociar usuarios a almacenes', group_name: 'users' },
 
-   //adicuinar crud a warehouses
+   // CRUD almacenes
     { name: 'warehouses.read', description: 'Leer almacenes', group_name: 'warehouses' },
     { name: 'warehouses.create', description: 'Crear almacenes', group_name: 'warehouses' },
     { name: 'warehouses.update', description: 'Actualizar almacenes', group_name: 'warehouses' },
     { name: 'warehouses.delete', description: 'Eliminar almacenes', group_name: 'warehouses' },
   
-    //adicuinar crud a roles
+    // CRUD roles
     { name: 'roles.read', description: 'Leer roles', group_name: 'roles' },
     { name: 'roles.create', description: 'Crear roles', group_name: 'roles' },
     { name: 'roles.update', description: 'Actualizar roles', group_name: 'roles' },
     { name: 'roles.delete', description: 'Eliminar roles', group_name: 'roles' },
-   
-    /*permisos adicionales pueden agregarse aquí*/
 
+    // CRUD unidades de medida
+    { name: 'units.read', description: 'Leer unidades de medida', group_name: 'units' },
+    { name: 'units.create', description: 'Crear unidades de medida', group_name: 'units' },
+    { name: 'units.update', description: 'Actualizar unidades de medida', group_name: 'units' },
+    { name: 'units.delete', description: 'Eliminar unidades de medida', group_name: 'units' },
+
+    // CRUD monedas
+    { name: 'currencies.read', description: 'Leer monedas', group_name: 'currencies' },
+    { name: 'currencies.create', description: 'Crear monedas', group_name: 'currencies' },
+    { name: 'currencies.update', description: 'Actualizar monedas', group_name: 'currencies' },
+    { name: 'currencies.delete', description: 'Eliminar monedas', group_name: 'currencies' },
+
+    // CRUD tasas de cambio
+    { name: 'exchange_rates.read', description: 'Leer tasas de cambio', group_name: 'exchange_rates' },
+    { name: 'exchange_rates.create', description: 'Crear tasas de cambio', group_name: 'exchange_rates' },
+    { name: 'exchange_rates.update', description: 'Actualizar tasas de cambio', group_name: 'exchange_rates' },
+    { name: 'exchange_rates.delete', description: 'Eliminar tasas de cambio', group_name: 'exchange_rates' },
+
+    // CRUD categorías
+    { name: 'categories.read', description: 'Leer categorías', group_name: 'categories' },
+    { name: 'categories.create', description: 'Crear categorías', group_name: 'categories' },
+    { name: 'categories.update', description: 'Actualizar categorías', group_name: 'categories' },
+    { name: 'categories.delete', description: 'Eliminar categorías', group_name: 'categories' },
+
+    // CRUD productos
+    { name: 'products.read', description: 'Leer productos', group_name: 'products' },
+    { name: 'products.create', description: 'Crear productos', group_name: 'products' },
+    { name: 'products.update', description: 'Actualizar productos', group_name: 'products' },
+    { name: 'products.delete', description: 'Eliminar productos', group_name: 'products' },
+
+    // CRUD tipos de pago
+    { name: 'payment_types.read', description: 'Leer tipos de pago', group_name: 'payment_types' },
+    { name: 'payment_types.create', description: 'Crear tipos de pago', group_name: 'payment_types' },
+    { name: 'payment_types.update', description: 'Actualizar tipos de pago', group_name: 'payment_types' },
+    { name: 'payment_types.delete', description: 'Eliminar tipos de pago', group_name: 'payment_types' },
   ];
 
   for (const p of fixedPermissions) {
-    await db.execute(sql`INSERT IGNORE INTO permissions (name, description, group_name) VALUES (${p.name}, ${p.description}, ${p.group_name})`);
+    await db.execute(sql`INSERT INTO permissions (name, description, group_name) VALUES (${p.name}, ${p.description}, ${p.group_name})`);
   }
+  console.log("Permisos creados.");
 
-  // 4. Dar todos los permisos al rol admin
-  await db.execute(sql`INSERT IGNORE INTO role_permissions (role_id, permission_id)
-                      SELECT ${adminRoleId}, p.id FROM permissions p WHERE p.name IN ('users.read','users.create','users.update','users.delete','users.roles.associate','users.warehouses.associate','warehouses.read','warehouses.create','warehouses.update','warehouses.delete','roles.read','roles.create','roles.update','roles.delete')`);
+  // Dar todos los permisos al rol admin
+  await db.execute(sql`INSERT INTO role_permissions (role_id, permission_id)
+                      SELECT ${adminRoleId}, p.id FROM permissions p`);
+  console.log("Permisos asignados al rol admin.");
 
-  console.log("Seed de datos completado!");
+  // Seeds de monedas comunes (USD y CUP)
+  await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places) VALUES 
+    ('Dólar Estadounidense', 'USD', '$', 2),
+    ('Peso Cubano', 'CUP', '$', 2)`);
+  console.log("Monedas USD y CUP creadas.");
+
+  console.log("\n✅ Migración completada exitosamente!");
+  console.log("📊 Base de datos creada desde cero con todas las tablas y datos iniciales.");
   process.exit(0);
 }
 

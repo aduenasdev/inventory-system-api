@@ -93,6 +93,7 @@ api.interceptors.response.use(
 
 **Manejo de Errores**:
 - 400: Credenciales inválidas → Mostrar error en formulario
+- 400: Usuario deshabilitado → "Usuario deshabilitado. Contacte al administrador"
 - 401: Usuario no encontrado → "Email o contraseña incorrectos"
 - 500: Error servidor → Mostrar mensaje genérico
 
@@ -294,10 +295,11 @@ const canCreateUsers = user.permissions.includes('users.create');
 1. Verificar permiso `users.read` antes de cargar página
 2. Hacer GET a `/users` con token
 3. Mostrar tabla/lista de usuarios con:
-   - Email, roles, almacenes, última sesión
-4. Agregar filtros por email, rol
+   - Nombre, apellido, email, teléfono, estado (habilitado/deshabilitado), última sesión
+4. Agregar filtros por nombre, email, estado
 5. Agregar paginación si hay muchos usuarios
-6. Botones de acción: Editar, Eliminar (según permisos)
+6. Botones de acción: Editar, Deshabilitar/Habilitar (según permisos)
+7. Indicador visual de estado: badge verde (habilitado) o rojo (deshabilitado)
 
 ---
 
@@ -347,8 +349,12 @@ const canCreateUsers = user.permissions.includes('users.create');
 **Validaciones**:
 - Email: válido y único
 - Password: min 6 caracteres, 1 mayúscula, 1 minúscula, 1 número
+- nombre: requerido, no vacío
+- apellido: opcional
+- telefono: opcional
 - roleIds: array con al menos 1 rol (requerido)
 - warehouseIds: array opcional
+- enabled: se crea habilitado por defecto (true)
 
 **Response Success (201)**:
 ```json
@@ -363,11 +369,11 @@ const canCreateUsers = user.permissions.includes('users.create');
 ```
 
 **Lógica Frontend**:
-1. Formulario con campos: email, password, confirm password
+1. Formulario con campos: nombre (requerido), apellido, teléfono, email, password, confirm password
 2. Multi-select para roles (cargar de GET /roles)
 3. Multi-select para almacenes (cargar de GET /warehouses)
 4. Validar formulario localmente antes de enviar
-5. Enviar POST a `/users`
+5. Enviar POST a `/users` (el usuario se crea habilitado por defecto)
 6. Mostrar mensaje de éxito
 7. Redirigir a lista de usuarios o limpiar formulario
 
@@ -385,11 +391,14 @@ const canCreateUsers = user.permissions.includes('users.create');
 
 **Permiso requerido**: `users.update`
 
-**Request Body** (ambos campos opcionales):
+**Request Body** (todos los campos opcionales):
 ```json
 {
   "email": "actualizado@example.com",
-  "password": "NewPass123"
+  "password": "NewPass123",
+  "nombre": "Juan Carlos",
+  "apellido": "Rodríguez",
+  "telefono": "809-555-0300"
 }
 ```
 
@@ -402,17 +411,17 @@ const canCreateUsers = user.permissions.includes('users.create');
 
 **Lógica Frontend**:
 1. Cargar datos actuales con GET /users/:id
-2. Formulario pre-llenado con email actual
+2. Formulario pre-llenado con nombre, apellido, teléfono, email
 3. Campo password opcional (vacío = no cambiar)
 4. Validar cambios antes de enviar
 5. Enviar PUT con solo los campos modificados
 
-**Nota**: Para cambiar roles/almacenes usar los endpoints específicos (2.6 y 2.7)
+**Nota**: Para cambiar roles/almacenes usar los endpoints específicos. Para habilitar/deshabilitar usar PUT /users/:id/enable o /users/:id/disable
 
 ---
 
-### 2.5 DELETE /users/:id
-**Descripción**: Eliminar usuario del sistema
+### 2.5 PUT /users/:id/disable
+**Descripción**: Deshabilitar usuario (soft delete, no se elimina de BD)
 
 **Headers**: `Authorization: Bearer <accessToken>`
 
@@ -421,22 +430,44 @@ const canCreateUsers = user.permissions.includes('users.create');
 **Response Success (200)**:
 ```json
 {
-  "message": "Usuario eliminado exitosamente"
+  "message": "Usuario deshabilitado"
 }
 ```
 
 **Lógica Frontend**:
-1. Botón "Eliminar" solo visible con permiso `users.delete`
-2. Mostrar confirmación: "¿Estás seguro de eliminar a [email]?"
-3. Enviar DELETE a `/users/:id`
-4. Actualizar lista de usuarios (refetch o eliminar localmente)
+1. Botón "Deshabilitar" solo visible con permiso `users.delete` y si usuario está habilitado
+2. Mostrar confirmación: "¿Deshabilitar usuario [nombre]? No podrá iniciar sesión."
+3. Enviar PUT a `/users/:id/disable`
+4. Actualizar estado del usuario en la lista (cambiar badge a rojo)
 5. Mostrar notificación de éxito
 
-**Precaución**: Eliminar usuario elimina en cascada sus relaciones (roles, almacenes)
+**Importante**: El usuario no se elimina de la base de datos, solo se marca como `enabled = false` y no podrá hacer login.
 
 ---
 
-### 2.6 POST /users/:userId/roles
+### 2.6 PUT /users/:id/enable
+**Descripción**: Habilitar usuario previamente deshabilitado
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `users.update`
+
+**Response Success (200)**:
+```json
+{
+  "message": "Usuario habilitado"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Habilitar" solo visible con permiso `users.update` y si usuario está deshabilitado
+2. Enviar PUT a `/users/:id/enable`
+3. Actualizar estado del usuario en la lista (cambiar badge a verde)
+4. Mostrar notificación de éxito
+
+---
+
+### 2.7 POST /users/:userId/roles
 **Descripción**: Asignar rol a usuario existente
 
 **Headers**: `Authorization: Bearer <accessToken>`
@@ -467,7 +498,7 @@ const canCreateUsers = user.permissions.includes('users.create');
 
 ---
 
-### 2.7 POST /users/:userId/warehouses
+### 2.8 POST /users/:userId/warehouses
 **Descripción**: Asignar almacenes a usuario
 
 **Headers**: `Authorization: Bearer <accessToken>`
@@ -745,10 +776,16 @@ const canCreateUsers = user.permissions.includes('users.create');
 2. Agrupar por `group` para mejor UI
 3. Mostrar en formulario de asignación a roles
 
-**Permisos disponibles (14 total)**:
-- **users**: read, create, update, delete, assign_roles, assign_warehouses
+**Permisos disponibles (38 total)**:
+- **users**: read, create, update, delete, roles.associate, warehouses.associate
 - **warehouses**: read, create, update, delete
 - **roles**: read, create, update, delete
+- **units**: read, create, update, delete
+- **currencies**: read, create, update, delete
+- **exchange_rates**: read, create, update, delete
+- **categories**: read, create, update, delete
+- **products**: read, create, update, delete
+- **payment_types**: read, create, update, delete
 
 ---
 
@@ -927,6 +964,9 @@ const canCreateUsers = user.permissions.includes('users.create');
 3. Permitir editar cualquier campo
 4. Enviar PUT con cambios
 
+**Manejo de Errores**:
+- 400: Nombre duplicado → "El nombre ya está en uso por otro almacén"
+
 ---
 
 ### 5.5 DELETE /warehouses/:id
@@ -945,9 +985,12 @@ const canCreateUsers = user.permissions.includes('users.create');
 
 **Lógica Frontend**:
 1. Confirmación antes de eliminar
-2. Advertir sobre eliminación en cascada (usuarios asignados)
-3. Enviar DELETE
-4. Actualizar lista
+2. Enviar DELETE
+3. Si error 400: Mostrar "No se puede eliminar el almacén porque tiene usuarios asignados"
+4. Si éxito: Actualizar lista
+
+**Manejo de Errores**:
+- 400: Almacén tiene usuarios asignados → "No se puede eliminar el almacén porque tiene usuarios asignados. Primero remueva los usuarios."
 
 ---
 
@@ -1317,6 +1360,393 @@ const handleError = (error) => {
 - [ ] Manejo de errores con mensajes claros
 - [ ] Validación de formularios antes de enviar
 - [ ] Confirmación en acciones destructivas (delete)
+
+---
+
+## 📏 5. UNITS MODULE (Unidades de Medida)
+
+### 5.1 GET /units
+**Descripción**: Listar todas las unidades de medida activas
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `units.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "name": "Kilogramo",
+    "shortName": "kg",
+    "description": "Unidad de masa del SI",
+    "type": "weight",
+    "isActive": true,
+    "createdAt": "2026-01-09T10:00:00.000Z",
+    "updatedAt": "2026-01-09T10:00:00.000Z"
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Nombre, Abreviatura, Tipo, Descripción, Estado, Acciones
+2. Filtros por tipo (peso, volumen, longitud, cantidad)
+3. Badge de estado (activo/inactivo)
+
+---
+
+### 5.2 POST /units
+**Descripción**: Crear nueva unidad de medida
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `units.create`
+
+**Request Body**:
+```json
+{
+  "name": "Litro",
+  "shortName": "L",
+  "description": "Unidad de volumen",
+  "type": "volume"
+}
+```
+
+**Validaciones**:
+- name: único, requerido
+- shortName: único, requerido
+- type: requerido (weight, volume, length, count)
+
+**Lógica Frontend**:
+1. Formulario: Nombre, Abreviatura, Tipo (dropdown), Descripción
+2. Selector de tipo: Peso, Volumen, Longitud, Cantidad
+
+**Manejo de Errores**:
+- 400: "Ya existe una unidad con el nombre ..."
+- 400: "Ya existe una unidad con la abreviatura ..."
+
+---
+
+## 💰 6. CURRENCIES MODULE (Monedas)
+
+### 6.1 GET /currencies
+**Descripción**: Listar todas las monedas activas. Seeds: USD y CUP
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `currencies.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "name": "Dólar Estadounidense",
+    "code": "USD",
+    "symbol": "$",
+    "decimalPlaces": 2,
+    "isActive": true
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Nombre, Código, Símbolo, Decimales, Estado, Acciones
+2. Usar en dropdowns de productos y tasas de cambio
+
+---
+
+### 6.2 POST /currencies
+**Descripción**: Crear nueva moneda
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `currencies.create`
+
+**Request Body**:
+```json
+{
+  "name": "Euro",
+  "code": "EUR",
+  "symbol": "€",
+  "decimalPlaces": 2
+}
+```
+
+**Validaciones**:
+- name: único, requerido
+- code: único, requerido (3 caracteres ISO)
+
+**Lógica Frontend**:
+1. Formulario: Nombre, Código (3 letras), Símbolo, Decimales
+2. Validar formato ISO para código
+
+**Manejo de Errores**:
+- 400: "Ya existe una moneda con el nombre ..."
+
+---
+
+## 💱 7. EXCHANGE RATES MODULE (Tasas de Cambio)
+
+### 7.1 GET /exchange-rates
+**Descripción**: Listar todas las tasas de cambio
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `exchange_rates.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "fromCurrencyId": 1,
+    "toCurrencyId": 2,
+    "rate": 120.50,
+    "date": "2026-01-09"
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: De → A, Tasa, Fecha, Acciones
+2. Filtros por moneda origen/destino y rango de fechas
+
+---
+
+### 7.2 GET /exchange-rates/latest/:from/:to
+**Descripción**: Obtener última tasa entre dos monedas
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `exchange_rates.read`
+
+**URL Params**: 
+- `from`: ID moneda origen
+- `to`: ID moneda destino
+
+**Lógica Frontend**:
+1. Usar en calculadoras de conversión
+2. Widget de conversión en tiempo real
+
+---
+
+### 7.3 POST /exchange-rates
+**Descripción**: Crear nueva tasa de cambio
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `exchange_rates.create`
+
+**Request Body**:
+```json
+{
+  "fromCurrencyId": 1,
+  "toCurrencyId": 2,
+  "rate": 125.00,
+  "date": "2026-01-10"
+}
+```
+
+**Validaciones**:
+- fromCurrencyId ≠ toCurrencyId
+- Solo una tasa por par de monedas por día
+
+**Lógica Frontend**:
+1. Formulario: Moneda Origen, Moneda Destino, Tasa, Fecha
+2. Validar que origen ≠ destino
+
+**Manejo de Errores**:
+- 400: "La moneda origen y destino no pueden ser iguales"
+- 400: "Ya existe una tasa para estas monedas en esta fecha"
+
+---
+
+## 🏷️ 8. CATEGORIES MODULE (Categorías)
+
+### 8.1 GET /categories
+**Descripción**: Listar todas las categorías activas
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `categories.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "name": "Electrónica",
+    "description": "Productos electrónicos",
+    "isActive": true
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Vista de tarjetas o lista
+2. Badge de estado
+3. Usar en dropdown de productos
+
+---
+
+### 8.2 POST /categories
+**Descripción**: Crear nueva categoría
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `categories.create`
+
+**Request Body**:
+```json
+{
+  "name": "Herramientas",
+  "description": "Herramientas y equipos"
+}
+```
+
+**Validaciones**:
+- name: único, requerido
+
+**Lógica Frontend**:
+1. Modal simple: Nombre, Descripción
+
+**Manejo de Errores**:
+- 400: "Ya existe una categoría con el nombre ..."
+
+---
+
+## 📦 9. PRODUCTS MODULE (Productos)
+
+### 9.1 GET /products
+**Descripción**: Listar todos los productos activos
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `products.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "name": "Laptop HP Pavilion",
+    "code": "LAP-HP-001",
+    "costPrice": 450.00,
+    "salePrice": 650.00,
+    "currencyId": 1,
+    "unitId": 1,
+    "categoryId": 1,
+    "isActive": true
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Código, Nombre, Categoría, Precios, Moneda, Estado
+2. Filtros: Categoría, Búsqueda, Rango de precios
+3. Calcular margen: `((salePrice - costPrice) / costPrice) * 100`
+
+---
+
+### 9.2 GET /products/category/:categoryId
+**Descripción**: Listar productos de una categoría
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `products.read`
+
+**Lógica Frontend**:
+1. Usar en vista de categoría específica
+2. Sidebar con categorías
+
+---
+
+### 9.3 POST /products
+**Descripción**: Crear nuevo producto
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `products.create`
+
+**Request Body**:
+```json
+{
+  "name": "Mouse Logitech",
+  "code": "MOU-LOG-001",
+  "costPrice": 10.00,
+  "salePrice": 15.00,
+  "currencyId": 1,
+  "unitId": 1,
+  "categoryId": 1
+}
+```
+
+**Validaciones**:
+- name: único, requerido
+- code: único, requerido
+- costPrice, salePrice: positivos
+
+**Lógica Frontend**:
+1. Formulario completo: Nombre, Código, Descripción, Categoría, Unidad, Moneda, Precios
+2. Calcular margen automáticamente
+
+**Manejo de Errores**:
+- 400: "Ya existe un producto con el nombre/código ..."
+
+---
+
+## 💳 10. PAYMENT TYPES MODULE (Tipos de Pago)
+
+### 10.1 GET /payment-types
+**Descripción**: Listar todos los tipos de pago activos
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `payment_types.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "type": "Efectivo",
+    "description": "Pago en efectivo",
+    "isActive": true
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Lista: Tipo, Descripción, Estado
+2. Usar en módulo de ventas
+3. Asociar iconos (💵💳🏦)
+
+---
+
+### 10.2 POST /payment-types
+**Descripción**: Crear nuevo tipo de pago
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `payment_types.create`
+
+**Request Body**:
+```json
+{
+  "type": "Transferencia Bancaria",
+  "description": "Pago por transferencia"
+}
+```
+
+**Validaciones**:
+- type: único, requerido
+
+**Lógica Frontend**:
+1. Formulario: Tipo, Descripción
+
+**Manejo de Errores**:
+- 400: "Ya existe un tipo de pago con este nombre"
 
 ---
 

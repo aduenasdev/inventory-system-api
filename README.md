@@ -35,7 +35,13 @@ src/
 │       ├── user_roles.ts            # Relación usuarios-roles
 │       ├── warehouses.ts            # Almacenes
 │       ├── user_warehouses.ts       # Relación usuarios-almacenes
-│       └── refresh_tokens.ts        # Tokens de refresco
+│       ├── refresh_tokens.ts        # Tokens de refresco
+│       ├── units.ts                 # Unidades de medida
+│       ├── currencies.ts            # Monedas
+│       ├── exchange_rates.ts        # Tasas de cambio
+│       ├── categories.ts            # Categorías de productos
+│       ├── products.ts              # Productos
+│       └── payment_types.ts         # Tipos de pago
 ├── middlewares/
 │   ├── auth.middleware.ts           # Validación de JWT
 │   ├── authorization.middleware.ts  # Control por permisos/roles
@@ -45,7 +51,13 @@ src/
 │   ├── users/                       # Gestión de usuarios
 │   ├── roles/                       # Gestión de roles
 │   ├── permissions/                 # Gestión de permisos
-│   └── warehouses/                  # Gestión de almacenes
+│   ├── warehouses/                  # Gestión de almacenes
+│   ├── units/                       # Unidades de medida
+│   ├── currencies/                  # Monedas
+│   ├── exchange_rates/              # Tasas de cambio
+│   ├── categories/                  # Categorías de productos
+│   ├── products/                    # Productos
+│   └── payment_types/               # Tipos de pago
 ├── utils/
 │   └── jwt.ts                       # Utilidades JWT
 ├── app.ts                           # Configuración Express
@@ -153,15 +165,15 @@ El sistema implementa control de acceso granular con:
 | **role_permissions** | Asignación de permisos a roles (muchos a muchos) |
 | **user_roles** | Asignación de roles a usuarios (muchos a muchos) |
 
-### Permisos del Sistema (14 permisos)
+### Permisos del Sistema (38 permisos)
 
 #### Usuarios (6 permisos)
 - `users.read` - Ver usuarios
 - `users.create` - Crear usuarios
 - `users.update` - Actualizar usuarios
 - `users.delete` - Eliminar usuarios
-- `users.assign_roles` - Asignar roles a usuarios
-- `users.assign_warehouses` - Asignar almacenes a usuarios
+- `users.roles.associate` - Asignar roles a usuarios
+- `users.warehouses.associate` - Asignar almacenes a usuarios
 
 #### Almacenes (4 permisos)
 - `warehouses.read` - Ver almacenes
@@ -174,6 +186,42 @@ El sistema implementa control de acceso granular con:
 - `roles.create` - Crear roles
 - `roles.update` - Actualizar roles
 - `roles.delete` - Eliminar roles
+
+#### Unidades de Medida (4 permisos)
+- `units.read` - Ver unidades
+- `units.create` - Crear unidades
+- `units.update` - Actualizar unidades
+- `units.delete` - Eliminar unidades
+
+#### Monedas (4 permisos)
+- `currencies.read` - Ver monedas
+- `currencies.create` - Crear monedas
+- `currencies.update` - Actualizar monedas
+- `currencies.delete` - Eliminar monedas
+
+#### Tasas de Cambio (4 permisos)
+- `exchange_rates.read` - Ver tasas de cambio
+- `exchange_rates.create` - Crear tasas de cambio
+- `exchange_rates.update` - Actualizar tasas de cambio
+- `exchange_rates.delete` - Eliminar tasas de cambio
+
+#### Categorías (4 permisos)
+- `categories.read` - Ver categorías
+- `categories.create` - Crear categorías
+- `categories.update` - Actualizar categorías
+- `categories.delete` - Eliminar categorías
+
+#### Productos (4 permisos)
+- `products.read` - Ver productos
+- `products.create` - Crear productos
+- `products.update` - Actualizar productos
+- `products.delete` - Eliminar productos
+
+#### Tipos de Pago (4 permisos)
+- `payment_types.read` - Ver tipos de pago
+- `payment_types.create` - Crear tipos de pago
+- `payment_types.update` - Actualizar tipos de pago
+- `payment_types.delete` - Eliminar tipos de pago
 
 ### Ejemplo de Uso
 ```typescript
@@ -197,12 +245,13 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 - `GET /auth/me` - Obtener usuario autenticado
 - `PUT /auth/change-password` - Cambiar contraseña propia (sin permisos)
 
-### 👥 Users (7 endpoints)
+### 👥 Users (8 endpoints)
 - `GET /users` - Listar usuarios (requiere `users.read`)
 - `GET /users/:id` - Ver usuario específico
-- `POST /users` - Crear usuario con roles y almacenes (requiere `users.create`)
-- `PUT /users/:id` - Actualizar usuario
-- `DELETE /users/:id` - Eliminar usuario
+- `POST /users` - Crear usuario con nombre, roles y almacenes (requiere `users.create`)
+- `PUT /users/:id` - Actualizar usuario (email, password, nombre, apellido, telefono)
+- `PUT /users/:id/disable` - Deshabilitar usuario (soft delete, requiere `users.delete`)
+- `PUT /users/:id/enable` - Habilitar usuario (requiere `users.update`)
 - `POST /users/:id/roles` - Asignar roles
 - `POST /users/:id/warehouses` - Asignar almacenes
 
@@ -227,7 +276,56 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 - `POST /warehouses/:id/users` - Asignar usuarios al almacén
 - `DELETE /warehouses/:id/users/:userId` - Remover usuario del almacén
 
-**Total: 27 endpoints**
+### 📏 Units (5 endpoints)
+- `GET /units` - Listar unidades (requiere `units.read`)
+- `GET /units/:id` - Ver unidad específica
+- `POST /units` - Crear unidad (requiere `units.create`)
+- `PUT /units/:id` - Actualizar unidad
+- `PUT /units/:id/disable` - Deshabilitar unidad (soft delete)
+- `PUT /units/:id/enable` - Habilitar unidad
+
+### 💰 Currencies (5 endpoints)
+- `GET /currencies` - Listar monedas (requiere `currencies.read`)
+- `GET /currencies/:id` - Ver moneda específica
+- `POST /currencies` - Crear moneda (requiere `currencies.create`)
+- `PUT /currencies/:id` - Actualizar moneda
+- `PUT /currencies/:id/disable` - Deshabilitar moneda (soft delete)
+- `PUT /currencies/:id/enable` - Habilitar moneda
+
+### 💱 Exchange Rates (6 endpoints)
+- `GET /exchange-rates` - Listar tasas de cambio (requiere `exchange_rates.read`)
+- `GET /exchange-rates/:id` - Ver tasa específica
+- `GET /exchange-rates/latest/:from/:to` - Obtener última tasa entre dos monedas
+- `POST /exchange-rates` - Crear tasa de cambio (requiere `exchange_rates.create`)
+- `PUT /exchange-rates/:id` - Actualizar tasa
+- `DELETE /exchange-rates/:id` - Eliminar tasa
+
+### 🏷️ Categories (5 endpoints)
+- `GET /categories` - Listar categorías (requiere `categories.read`)
+- `GET /categories/:id` - Ver categoría específica
+- `POST /categories` - Crear categoría (requiere `categories.create`)
+- `PUT /categories/:id` - Actualizar categoría
+- `PUT /categories/:id/disable` - Deshabilitar categoría (soft delete)
+- `PUT /categories/:id/enable` - Habilitar categoría
+
+### 📦 Products (6 endpoints)
+- `GET /products` - Listar productos (requiere `products.read`)
+- `GET /products/:id` - Ver producto específico
+- `GET /products/category/:categoryId` - Listar productos por categoría
+- `POST /products` - Crear producto (requiere `products.create`)
+- `PUT /products/:id` - Actualizar producto
+- `PUT /products/:id/disable` - Deshabilitar producto (soft delete)
+- `PUT /products/:id/enable` - Habilitar producto
+
+### 💳 Payment Types (5 endpoints)
+- `GET /payment-types` - Listar tipos de pago (requiere `payment_types.read`)
+- `GET /payment-types/:id` - Ver tipo de pago específico
+- `POST /payment-types` - Crear tipo de pago (requiere `payment_types.create`)
+- `PUT /payment-types/:id` - Actualizar tipo de pago
+- `PUT /payment-types/:id/disable` - Deshabilitar tipo de pago (soft delete)
+- `PUT /payment-types/:id/enable` - Habilitar tipo de pago
+
+**Total: 60 endpoints**
 
 ---
 
@@ -304,7 +402,7 @@ export const createUserSchema = z.object({
 
 | Tabla | Descripción |
 |-------|-------------|
-| **users** | Usuarios del sistema (email, password, lastLogin) |
+| **users** | Usuarios del sistema (email, password, nombre, apellido, telefono, enabled, lastLogin) |
 | **roles** | Roles del sistema (name, description) |
 | **permissions** | Permisos granulares (name, description, group) |
 | **role_permissions** | Relación muchos a muchos entre roles y permisos |
@@ -312,6 +410,12 @@ export const createUserSchema = z.object({
 | **warehouses** | Almacenes (name, provincia, municipio, direccion, ubicacion) |
 | **user_warehouses** | Relación muchos a muchos entre usuarios y almacenes |
 | **refresh_tokens** | Tokens de refresco activos (token, userId, expiresAt) |
+| **units** | Unidades de medida (name, shortName, description, type, isActive) |
+| **currencies** | Monedas (name, code, symbol, decimalPlaces, isActive) |
+| **exchange_rates** | Tasas de cambio (fromCurrencyId, toCurrencyId, rate, date) |
+| **categories** | Categorías de productos (name, description, isActive) |
+| **products** | Productos (name, code, description, costPrice, salePrice, currencyId, unitId, categoryId, isActive) |
+| **payment_types** | Tipos de pago (type, description, isActive) |
 
 **Características:**
 - Todas las tablas usan `id` como clave primaria
@@ -333,6 +437,8 @@ export const createUserSchema = z.object({
 - ✅ **Control granular** de permisos por endpoint
 - ✅ **lastLogin tracking** para auditoría
 - ✅ **Sin registro público** (solo admins crean usuarios)
+- ✅ **Soft delete** de usuarios (deshabilitar en lugar de eliminar)
+- ✅ **Validación de estado** en login (usuarios deshabilitados no pueden acceder)
 
 ---
 

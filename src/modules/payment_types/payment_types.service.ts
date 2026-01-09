@@ -1,0 +1,59 @@
+import { db } from "../../db/connection";
+import { paymentTypes } from "../../db/schema/payment_types";
+import { eq } from "drizzle-orm";
+
+export async function createPaymentType(data: {
+  type: string;
+  description?: string;
+}) {
+  // Verificar si ya existe un tipo de pago con ese tipo
+  const existing = await db.select().from(paymentTypes).where(eq(paymentTypes.type, data.type));
+  if (existing.length > 0) {
+    throw new Error(`Ya existe un tipo de pago con el tipo "${data.type}"`);
+  }
+
+  const [insert] = await db.insert(paymentTypes).values(data);
+  return { id: insert.insertId, ...data };
+}
+
+export async function getAllPaymentTypes() {
+  return db.select().from(paymentTypes);
+}
+
+export async function getPaymentTypeById(paymentTypeId: number) {
+  const rows = await db.select().from(paymentTypes).where(eq(paymentTypes.id, paymentTypeId));
+  return rows[0] || null;
+}
+
+export async function updatePaymentType(
+  paymentTypeId: number,
+  data: {
+    type?: string;
+    description?: string;
+  }
+) {
+  const updateData: any = {};
+
+  if (data.type) {
+    const existing = await db.select().from(paymentTypes).where(eq(paymentTypes.type, data.type));
+    if (existing.length > 0 && existing[0].id !== paymentTypeId) {
+      throw new Error(`El tipo "${data.type}" ya está en uso por otro tipo de pago`);
+    }
+    updateData.type = data.type;
+  }
+
+  if (data.description !== undefined) updateData.description = data.description;
+
+  await db.update(paymentTypes).set(updateData).where(eq(paymentTypes.id, paymentTypeId));
+  return { message: "Tipo de pago actualizado" };
+}
+
+export async function disablePaymentType(paymentTypeId: number) {
+  await db.update(paymentTypes).set({ isActive: false }).where(eq(paymentTypes.id, paymentTypeId));
+  return { message: "Tipo de pago deshabilitado" };
+}
+
+export async function enablePaymentType(paymentTypeId: number) {
+  await db.update(paymentTypes).set({ isActive: true }).where(eq(paymentTypes.id, paymentTypeId));
+  return { message: "Tipo de pago habilitado" };
+}

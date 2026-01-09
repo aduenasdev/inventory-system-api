@@ -7,6 +7,12 @@ import roleRoutes from "./modules/roles/roles.routes";
 import permissionRoutes from "./modules/permissions/permissions.routes";
 import userRoutes from "./modules/users/users.routes";
 import warehouseRoutes from "./modules/warehouses/warehouses.routes";
+import unitRoutes from "./modules/units/units.routes";
+import currencyRoutes from "./modules/currencies/currencies.routes";
+import exchangeRateRoutes from "./modules/exchange_rates/exchange_rates.routes";
+import categoryRoutes from "./modules/categories/categories.routes";
+import productRoutes from "./modules/products/products.routes";
+import paymentTypeRoutes from "./modules/payment_types/payment_types.routes";
 
 const app = express();
 
@@ -20,6 +26,12 @@ app.use("/roles", roleRoutes);
 app.use("/permissions", permissionRoutes);
 app.use("/users", userRoutes);
 app.use("/warehouses", warehouseRoutes);
+app.use("/units", unitRoutes);
+app.use("/currencies", currencyRoutes);
+app.use("/exchange-rates", exchangeRateRoutes);
+app.use("/categories", categoryRoutes);
+app.use("/products", productRoutes);
+app.use("/payment-types", paymentTypeRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

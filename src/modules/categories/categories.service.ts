@@ -1,0 +1,59 @@
+import { db } from "../../db/connection";
+import { categories } from "../../db/schema/categories";
+import { eq } from "drizzle-orm";
+
+export async function createCategory(data: {
+  name: string;
+  description?: string;
+}) {
+  // Verificar si ya existe una categoría con ese nombre
+  const existing = await db.select().from(categories).where(eq(categories.name, data.name));
+  if (existing.length > 0) {
+    throw new Error(`Ya existe una categoría con el nombre "${data.name}"`);
+  }
+
+  const [insert] = await db.insert(categories).values(data);
+  return { id: insert.insertId, ...data };
+}
+
+export async function getAllCategories() {
+  return db.select().from(categories);
+}
+
+export async function getCategoryById(categoryId: number) {
+  const rows = await db.select().from(categories).where(eq(categories.id, categoryId));
+  return rows[0] || null;
+}
+
+export async function updateCategory(
+  categoryId: number,
+  data: {
+    name?: string;
+    description?: string;
+  }
+) {
+  const updateData: any = {};
+
+  if (data.name) {
+    const existing = await db.select().from(categories).where(eq(categories.name, data.name));
+    if (existing.length > 0 && existing[0].id !== categoryId) {
+      throw new Error(`El nombre "${data.name}" ya está en uso por otra categoría`);
+    }
+    updateData.name = data.name;
+  }
+
+  if (data.description !== undefined) updateData.description = data.description;
+
+  await db.update(categories).set(updateData).where(eq(categories.id, categoryId));
+  return { message: "Categoría actualizada" };
+}
+
+export async function disableCategory(categoryId: number) {
+  await db.update(categories).set({ isActive: false }).where(eq(categories.id, categoryId));
+  return { message: "Categoría deshabilitada" };
+}
+
+export async function enableCategory(categoryId: number) {
+  await db.update(categories).set({ isActive: true }).where(eq(categories.id, categoryId));
+  return { message: "Categoría habilitada" };
+}
