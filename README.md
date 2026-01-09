@@ -71,6 +71,7 @@ src/
 ### 1. Instalar dependencias
 ```bash
 npm install
+ 
 ```
 
 ### 2. Configurar variables de entorno
