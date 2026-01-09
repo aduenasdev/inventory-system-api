@@ -22,6 +22,12 @@ async function main() {
     )
   `);
 
+  // Agregar columna last_login si no existe
+  await db.execute(sql`
+    ALTER TABLE users 
+    ADD COLUMN IF NOT EXISTS last_login TIMESTAMP NULL
+  `);
+
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS permissions (
       id INT AUTO_INCREMENT PRIMARY KEY,

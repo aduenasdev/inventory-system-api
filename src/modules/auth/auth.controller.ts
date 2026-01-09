@@ -22,7 +22,9 @@ export async function registerHandler(req: Request, res: Response) {
 
 export async function loginHandler(req: Request, res: Response) {
   try {
-    const { user, accessToken, refreshToken } = await loginUser(req.body);
+    const { user, accessToken, refreshToken } = await loginUser({
+      body: req.body
+    } as any);
     res.status(200).json({
       message: "Login successful",
       user,
@@ -56,7 +58,9 @@ export async function meHandler(req: Request, res: Response) {
 export async function changePasswordHandler(req: Request, res: Response) {
   try {
     const userId = res.locals.user.id; // Usuario autenticado
-    const result = await changePassword(userId, req.body);
+    const result = await changePassword(userId, {
+      body: req.body
+    } as any);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

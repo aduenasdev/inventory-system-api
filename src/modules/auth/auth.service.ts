@@ -77,59 +77,70 @@ export async function registerUser(data: RegisterUserInput) {
 export async function loginUser(data: LoginUserInput) {
   const { email, password } = data.body;
 
-  const [user] = await db.select().from(users).where(eq(users.email, email));
+  console.log('Login attempt:', { email, password });
 
-  if (!user) {
-    throw new Error("Invalid email or password");
+  try {
+    const result = await db.select().from(users).where(eq(users.email, email));
+    //console.log('Query result:', result);
+    const [user] = result;
+
+   // console.log('User found:', user);
+
+    if (!user) {
+      throw new Error("Invalid email or password");
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      throw new Error("Invalid email or password");
+    }
+
+    // Update last login timestamp
+    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+
+    const { accessToken, refreshToken } = generateTokens({ userId: user.id });
+
+    await db.insert(refreshTokens).values({
+      token: refreshToken,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    });
+
+    // Build roles with permissions for response
+    const rolesForUser = await db
+      .select({ roleId: roles.id, roleName: roles.name })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(userRoles.userId, user.id));
+
+    const roleIds = rolesForUser.map(r => r.roleId);
+    let rolePermRows: Array<{ roleId: number; roleName: string; permissionName: string }> = [];
+    if (roleIds.length > 0) {
+      const rows = await db
+        .select({ roleId: rolePermissions.roleId, roleName: roles.name, permissionName: permissions.name })
+        .from(rolePermissions)
+        .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+        .innerJoin(roles, eq(rolePermissions.roleId, roles.id))
+        .where(inArray(rolePermissions.roleId, roleIds));
+      rolePermRows = rows as any;
+    }
+
+    const rolesWithPermissions = rolesForUser.map(r => ({
+      name: r.roleName,
+      permissions: rolePermRows.filter(p => p.roleId === r.roleId).map(p => p.permissionName),
+    }));
+
+    return {
+      user: { id: user.id, email: user.email },
+      roles: rolesWithPermissions,
+      accessToken,
+      refreshToken,
+    };
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
   }
-
-  const isPasswordValid = await bcrypt.compare(password, user.password);
-
-  if (!isPasswordValid) {
-    throw new Error("Invalid email or password");
-  }
-
-  // Update last login timestamp
-  await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
-
-  const { accessToken, refreshToken } = generateTokens({ userId: user.id });
-
-  await db.insert(refreshTokens).values({
-    token: refreshToken,
-    userId: user.id,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-  });
-
-  // Build roles with permissions for response
-  const rolesForUser = await db
-    .select({ roleId: roles.id, roleName: roles.name })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .where(eq(userRoles.userId, user.id));
-
-  const roleIds = rolesForUser.map(r => r.roleId);
-  let rolePermRows: Array<{ roleId: number; roleName: string; permissionName: string }> = [];
-  if (roleIds.length > 0) {
-    const rows = await db
-      .select({ roleId: rolePermissions.roleId, roleName: roles.name, permissionName: permissions.name })
-      .from(rolePermissions)
-      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-      .innerJoin(roles, eq(rolePermissions.roleId, roles.id))
-      .where(inArray(rolePermissions.roleId, roleIds));
-    rolePermRows = rows as any;
-  }
-
-  const rolesWithPermissions = rolesForUser.map(r => ({
-    name: r.roleName,
-    permissions: rolePermRows.filter(p => p.roleId === r.roleId).map(p => p.permissionName),
-  }));
-
-  return {
-    user: { id: user.id, email: user.email },
-    roles: rolesWithPermissions,
-    accessToken,
-    refreshToken,
-  };
 }
 
 export async function refreshTokenService(token: string) {
