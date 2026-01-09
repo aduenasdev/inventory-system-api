@@ -18,6 +18,9 @@ export const createUserSchema = z.object({
       .regex(/[A-Z]/, { message: "La contraseña debe contener al menos una mayúscula" })
       .regex(/[a-z]/, { message: "La contraseña debe contener al menos una minúscula" })
       .regex(/[0-9]/, { message: "La contraseña debe contener al menos un número" }),
+    nombre: z.string().min(1, { message: "El nombre es requerido" }),
+    apellido: z.string().optional(),
+    telefono: z.string().optional(),
     roleIds: z.array(z.number()).min(1, { message: "Al menos un rol es requerido" }),
     warehouseIds: z.array(z.number()).optional(),
   }),
@@ -33,6 +36,9 @@ export const updateUserSchema = z.object({
       .regex(/[a-z]/, { message: "La contraseña debe contener al menos una minúscula" })
       .regex(/[0-9]/, { message: "La contraseña debe contener al menos un número" })
       .optional(),
+    nombre: z.string().min(1, { message: "El nombre es requerido" }).optional(),
+    apellido: z.string().optional(),
+    telefono: z.string().optional(),
   }),
   params: z.object({
     userId: z.string(),

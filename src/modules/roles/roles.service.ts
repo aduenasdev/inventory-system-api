@@ -6,6 +6,12 @@ import { userRoles } from "../../db/schema/user_roles";
 import { eq, sql } from "drizzle-orm";
 
 export async function createRole(data: { name: string; description?: string }) {
+  // Verificar si ya existe un rol con ese nombre
+  const existing = await db.select().from(roles).where(eq(roles.name, data.name));
+  if (existing.length > 0) {
+    throw new Error(`Ya existe un rol con el nombre "${data.name}"`);
+  }
+  
   const [newRole] = await db.insert(roles).values(data);
   return { id: newRole.insertId, ...data };
 }
@@ -21,15 +27,34 @@ export async function getRoleById(roleId: number) {
 
 export async function updateRole(roleId: number, data: { name?: string; description?: string }) {
   const updateData: any = {};
-  if (data.name) updateData.name = data.name;
+  
+  if (data.name) {
+    // Verificar si el nombre ya está en uso por otro rol
+    const existing = await db.select().from(roles).where(eq(roles.name, data.name));
+    if (existing.length > 0 && existing[0].id !== roleId) {
+      throw new Error(`El nombre "${data.name}" ya está en uso por otro rol`);
+    }
+    updateData.name = data.name;
+  }
+  
   if (data.description !== undefined) updateData.description = data.description;
   await db.update(roles).set(updateData).where(eq(roles.id, roleId));
-  return { message: "Role updated" };
+  return { message: "Rol actualizado" };
 }
 
 export async function addPermissionToRole(roleId: number, permissionId: number) {
+  // Verificar si el rol ya tiene ese permiso
+  const existing = await db
+    .select()
+    .from(rolePermissions)
+    .where(sql`${rolePermissions.roleId} = ${roleId} AND ${rolePermissions.permissionId} = ${permissionId}`);
+  
+  if (existing.length > 0) {
+    throw new Error("El rol ya tiene ese permiso asignado");
+  }
+  
   await db.insert(rolePermissions).values({ roleId, permissionId });
-  return { message: "Permission added to role" };
+  return { message: "Permiso agregado al rol" };
 }
 
 export async function getPermissionsForRole(roleId: number) {
@@ -55,7 +80,7 @@ export async function deleteRole(roleId: number) {
     .limit(1);
 
   if (usersWithRole.length > 0) {
-    throw new Error("Cannot delete role as it is currently assigned to users.");
+    throw new Error("No se puede eliminar el rol porque está asignado a usuarios");
   }
 
   // Delete associated permissions
@@ -64,5 +89,5 @@ export async function deleteRole(roleId: number) {
   // Delete the role
   await db.delete(roles).where(eq(roles.id, roleId));
 
-  return { message: "Role deleted successfully" };
+  return { message: "Rol eliminado exitosamente" };
 }

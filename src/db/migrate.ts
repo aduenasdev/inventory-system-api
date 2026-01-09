@@ -17,6 +17,10 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
+      nombre VARCHAR(100) NOT NULL,
+      apellido VARCHAR(100),
+      telefono VARCHAR(20),
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_login TIMESTAMP NULL
     )
@@ -110,7 +114,7 @@ async function main() {
   if (!Array.isArray(adminUser) || adminUser.length === 0) {
     const hashedPassword = await bcrypt.hash("admin123", 10);
     await db.execute(
-      sql`INSERT INTO users (email, password) VALUES (${"admin@example.com"}, ${hashedPassword})`
+      sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@example.com"}, ${hashedPassword}, ${"Admin"})`
     );
     // Map admin user to admin role in user_roles pivot
     const [newAdmin] = (await db.execute(sql`SELECT id FROM users WHERE email = 'admin@example.com'`)) as any[];

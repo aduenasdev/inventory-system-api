@@ -6,7 +6,8 @@ import {
   getUsersHandler,
   getUserHandler,
   updateUserHandler,
-  deleteUserHandler,
+  disableUserHandler,
+  enableUserHandler,
 } from "./users.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { isRole, hasPermission } from "../../middlewares/authorization.middleware";
@@ -20,7 +21,8 @@ router.post("/", authMiddleware, hasPermission("users.create"), validate(createU
 router.get("/", authMiddleware, hasPermission("users.read"), getUsersHandler);
 router.get("/:userId", authMiddleware, hasPermission("users.read"), getUserHandler);
 router.put("/:userId", authMiddleware, hasPermission("users.update"), validate(updateUserSchema), updateUserHandler);
-router.delete("/:userId", authMiddleware, hasPermission("users.delete"), deleteUserHandler);
+router.put("/:userId/disable", authMiddleware, hasPermission("users.delete"), disableUserHandler);
+router.put("/:userId/enable", authMiddleware, hasPermission("users.update"), enableUserHandler);
 
 // Role assignment endpoints remain
 router.post(

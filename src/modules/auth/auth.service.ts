@@ -91,6 +91,11 @@ export async function loginUser(data: LoginUserInput) {
       throw new Error("Invalid email or password");
     }
 
+    // Verificar si el usuario está habilitado
+    if (!user.enabled) {
+      throw new Error("Usuario deshabilitado. Contacte al administrador");
+    }
+
     // Update last login timestamp
     await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
 

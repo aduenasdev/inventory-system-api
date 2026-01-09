@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { assignRoleToUser, removeRoleFromUser, createUser, getAllUsers, getUserById, updateUser, deleteUser } from "./users.service";
+import { assignRoleToUser, removeRoleFromUser, createUser, getAllUsers, getUserById, updateUser, disableUser, enableUser } from "./users.service";
 
 export async function assignRoleToUserHandler(req: Request, res: Response) {
   try {
@@ -61,10 +61,20 @@ export async function updateUserHandler(req: Request, res: Response) {
   }
 }
 
-export async function deleteUserHandler(req: Request, res: Response) {
+export async function disableUserHandler(req: Request, res: Response) {
   try {
     const { userId } = req.params;
-    const result = await deleteUser(Number(userId));
+    const result = await disableUser(Number(userId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function enableUserHandler(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const result = await enableUser(Number(userId));
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
