@@ -4,6 +4,8 @@ import { permissions } from "./permissions";
 import { rolePermissions } from "./role_permissions";
 import { refreshTokens } from "./refresh_tokens";
 import { userRoles } from "./user_roles";
+import { warehouses } from "./warehouses";
+import { userWarehouses } from "./user_warehouses";
 
 export const schemas = {
   users,
@@ -12,4 +14,6 @@ export const schemas = {
   rolePermissions,
   refreshTokens,
   userRoles,
+  warehouses,
+  userWarehouses,
 };

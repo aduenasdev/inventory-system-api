@@ -75,7 +75,7 @@ export async function registerUser(data: RegisterUserInput) {
 }
 
 export async function loginUser(data: LoginUserInput) {
-  const { email, password } = data;
+  const { email, password } = data.body;
 
   const [user] = await db.select().from(users).where(eq(users.email, email));
 
@@ -88,6 +88,9 @@ export async function loginUser(data: LoginUserInput) {
   if (!isPasswordValid) {
     throw new Error("Invalid email or password");
   }
+
+  // Update last login timestamp
+  await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
 
   const { accessToken, refreshToken } = generateTokens({ userId: user.id });
 

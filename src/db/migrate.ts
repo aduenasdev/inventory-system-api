@@ -17,7 +17,8 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       email VARCHAR(255) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_login TIMESTAMP NULL
     )
   `);
 
@@ -57,6 +58,27 @@ async function main() {
       user_id INT NOT NULL,
       expires_at TIMESTAMP NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS warehouses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      provincia VARCHAR(100) NOT NULL,
+      municipio VARCHAR(100) NOT NULL,
+      direccion TEXT,
+      ubicacion VARCHAR(255)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS user_warehouses (
+      user_id INT NOT NULL,
+      warehouse_id INT NOT NULL,
+      PRIMARY KEY (user_id, warehouse_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE
     )
   `);
 
@@ -121,17 +143,21 @@ async function main() {
     { name: 'users.create', description: 'Crear usuarios', group_name: 'users' },
     { name: 'users.update', description: 'Actualizar usuarios', group_name: 'users' },
     { name: 'users.delete', description: 'Eliminar usuarios', group_name: 'users' },
+    { name: 'users.roles.associate', description: 'Asociar roles a usuarios', group_name: 'users' },
+    { name: 'users.warehouses.associate', description: 'Asociar usuarios a almacenes', group_name: 'users' },
+
    //adicuinar crud a warehouses
     { name: 'warehouses.read', description: 'Leer almacenes', group_name: 'warehouses' },
     { name: 'warehouses.create', description: 'Crear almacenes', group_name: 'warehouses' },
     { name: 'warehouses.update', description: 'Actualizar almacenes', group_name: 'warehouses' },
     { name: 'warehouses.delete', description: 'Eliminar almacenes', group_name: 'warehouses' },
-    { name: 'warehouses.users.associate', description: 'Asociar usuarios a almacenes', group_name: 'warehouses' },
+  
     //adicuinar crud a roles
     { name: 'roles.read', description: 'Leer roles', group_name: 'roles' },
     { name: 'roles.create', description: 'Crear roles', group_name: 'roles' },
     { name: 'roles.update', description: 'Actualizar roles', group_name: 'roles' },
     { name: 'roles.delete', description: 'Eliminar roles', group_name: 'roles' },
+   
     /*permisos adicionales pueden agregarse aquí*/
 
   ];

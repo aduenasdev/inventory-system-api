@@ -13,7 +13,7 @@ export const createUserSchema = z.object({
   body: z.object({
     email: z.string().email(),
     password: z.string().min(6),
-  }),
+    roleIds: z.array(z.number()).min(1, "At least one role es requerido"),    warehouseIds: z.array(z.number()).optional(),  }),
 });
 
 export const updateUserSchema = z.object({

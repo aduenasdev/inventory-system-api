@@ -9,19 +9,19 @@ import {
   deleteRoleHandler,
 } from "./roles.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
-import { isRole } from "../../middlewares/authorization.middleware";
+import { hasPermission } from "../../middlewares/authorization.middleware";
 import { validate } from "../../middlewares/validate";
 import { createRoleSchema, addPermissionToRoleSchema, updateRoleSchema } from "./roles.schemas";
 
 const router = Router();
 
-router.get("/", authMiddleware, getRolesHandler);
-router.get("/:roleId", authMiddleware, getRoleHandler);
+router.get("/", authMiddleware, hasPermission("roles.read"), getRolesHandler);
+router.get("/:roleId", authMiddleware, hasPermission("roles.read"), getRoleHandler);
 
 router.post(
   "/",
   authMiddleware,
-  isRole("admin"),
+  hasPermission("roles.create"),
   validate(createRoleSchema),
   createRoleHandler
 );
@@ -29,23 +29,24 @@ router.post(
 router.put(
   "/:roleId",
   authMiddleware,
-  isRole("admin"),
+  hasPermission("roles.update"),
   validate(updateRoleSchema),
   updateRoleHandler
 );
 
-router.delete("/:roleId", authMiddleware, isRole("admin"), deleteRoleHandler);
+router.delete("/:roleId", authMiddleware, hasPermission("roles.delete"), deleteRoleHandler);
 
 router.get(
   "/:roleId/permissions",
   authMiddleware,
+  hasPermission("roles.read"),
   getPermissionsForRoleHandler
 );
 
 router.post(
   "/:roleId/permissions",
   authMiddleware,
-  isRole("admin"),
+  hasPermission("roles.update"),
   validate(addPermissionToRoleSchema),
   addPermissionToRoleHandler
 );
