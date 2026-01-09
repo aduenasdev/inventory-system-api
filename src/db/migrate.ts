@@ -102,21 +102,6 @@ async function main() {
     adminRoleId = adminRole[0].id;
   }
 
-  // 1b. Crear rol de usuario si no existe
-  const [userRole] = (await db.execute(
-    sql`SELECT id FROM roles WHERE name = 'user'`
-  )) as any[];
-  let userRoleId;
-  if (!Array.isArray(userRole) || userRole.length === 0) {
-    const [result] = (await db.execute(
-      sql`INSERT INTO roles (name, description) VALUES ('user', 'Rol base para usuarios')`
-    )) as any[];
-    userRoleId = result.insertId;
-    console.log("Rol 'user' creado.");
-  } else {
-    userRoleId = userRole[0].id;
-  }
-
   // 2. Crear usuario administrador si no existe
   const [adminUser] = (await db.execute(
     sql`SELECT id FROM users WHERE email = 'admin@example.com'`
@@ -166,9 +151,9 @@ async function main() {
     await db.execute(sql`INSERT IGNORE INTO permissions (name, description, group_name) VALUES (${p.name}, ${p.description}, ${p.group_name})`);
   }
 
-  // 4. Dar todos los permisos fijos al rol admin
+  // 4. Dar todos los permisos al rol admin
   await db.execute(sql`INSERT IGNORE INTO role_permissions (role_id, permission_id)
-                      SELECT ${adminRoleId}, p.id FROM permissions p WHERE p.name IN ('users.read','users.create','users.update','users.delete','warehouses.read','warehouses.create','warehouses.update','warehouses.delete','roles.read','roles.create','roles.update','roles.delete')`);
+                      SELECT ${adminRoleId}, p.id FROM permissions p WHERE p.name IN ('users.read','users.create','users.update','users.delete','users.roles.associate','users.warehouses.associate','warehouses.read','warehouses.create','warehouses.update','warehouses.delete','roles.read','roles.create','roles.update','roles.delete')`);
 
   console.log("Seed de datos completado!");
   process.exit(0);
