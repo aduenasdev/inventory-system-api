@@ -12,6 +12,14 @@ import { exchangeRates } from "./exchange_rates";
 import { categories } from "./categories";
 import { products } from "./products";
 import { paymentTypes } from "./payment_types";
+import { inventory } from "./inventory";
+import { inventoryMovements } from "./inventory_movements";
+import { purchases } from "./purchases";
+import { purchasesDetail } from "./purchases_detail";
+import { sales } from "./sales";
+import { salesDetail } from "./sales_detail";
+import { transfers } from "./transfers";
+import { transfersDetail } from "./transfers_detail";
 
 export const schemas = {
   users,
@@ -28,4 +36,12 @@ export const schemas = {
   categories,
   products,
   paymentTypes,
+  inventory,
+  inventoryMovements,
+  purchases,
+  purchasesDetail,
+  sales,
+  salesDetail,
+  transfers,
+  transfersDetail,
 };

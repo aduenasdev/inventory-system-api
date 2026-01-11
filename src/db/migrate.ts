@@ -201,6 +201,163 @@ async function main() {
     )
   `);
 
+  await db.execute(sql`
+    CREATE TABLE inventory (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      warehouse_id INT NOT NULL,
+      product_id INT NOT NULL,
+      current_quantity DECIMAL(18, 2) NOT NULL DEFAULT 0,
+      UNIQUE KEY unique_warehouse_product (warehouse_id, product_id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE inventory_movements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type ENUM('INVOICE_ENTRY', 'SALE_EXIT', 'TRANSFER_ENTRY', 'TRANSFER_EXIT', 'ADJUSTMENT_ENTRY', 'ADJUSTMENT_EXIT') NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL,
+      warehouse_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity DECIMAL(18, 2) NOT NULL,
+      reference VARCHAR(255),
+      reason TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE purchases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      invoice_number VARCHAR(50) NOT NULL UNIQUE,
+      supplier_name VARCHAR(255),
+      supplier_phone VARCHAR(50),
+      date DATE NOT NULL,
+      warehouse_id INT NOT NULL,
+      currency_id INT NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+      subtotal DECIMAL(18, 2) NOT NULL,
+      total DECIMAL(18, 2) NOT NULL,
+      notes TEXT,
+      cancellation_reason TEXT,
+      created_by INT NOT NULL,
+      accepted_by INT,
+      cancelled_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      accepted_at TIMESTAMP NULL,
+      cancelled_at TIMESTAMP NULL,
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (cancelled_by) REFERENCES users(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE purchases_detail (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      purchase_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity DECIMAL(18, 2) NOT NULL,
+      unit_cost DECIMAL(18, 2) NOT NULL,
+      original_currency_id INT,
+      exchange_rate_used DECIMAL(18, 6),
+      converted_unit_cost DECIMAL(18, 2),
+      subtotal DECIMAL(18, 2) NOT NULL,
+      FOREIGN KEY (purchase_id) REFERENCES purchases(id),
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (original_currency_id) REFERENCES currencies(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE sales (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      invoice_number VARCHAR(50) NOT NULL UNIQUE,
+      customer_name VARCHAR(255),
+      customer_phone VARCHAR(50),
+      date DATE NOT NULL,
+      warehouse_id INT NOT NULL,
+      currency_id INT NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+      subtotal DECIMAL(18, 2) NOT NULL,
+      total DECIMAL(18, 2) NOT NULL,
+      notes TEXT,
+      cancellation_reason TEXT,
+      created_by INT NOT NULL,
+      accepted_by INT,
+      cancelled_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      accepted_at TIMESTAMP NULL,
+      cancelled_at TIMESTAMP NULL,
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (cancelled_by) REFERENCES users(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE sales_detail (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      sale_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity DECIMAL(18, 2) NOT NULL,
+      unit_price DECIMAL(18, 2) NOT NULL,
+      payment_type_id INT NOT NULL,
+      original_currency_id INT,
+      exchange_rate_used DECIMAL(18, 6),
+      converted_unit_price DECIMAL(18, 2),
+      subtotal DECIMAL(18, 2) NOT NULL,
+      FOREIGN KEY (sale_id) REFERENCES sales(id),
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (payment_type_id) REFERENCES payment_types(id),
+      FOREIGN KEY (original_currency_id) REFERENCES currencies(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE transfers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      date DATE NOT NULL,
+      origin_warehouse_id INT NOT NULL,
+      destination_warehouse_id INT NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+      notes TEXT,
+      rejection_reason TEXT,
+      created_by INT NOT NULL,
+      accepted_by INT,
+      rejected_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      accepted_at TIMESTAMP NULL,
+      rejected_at TIMESTAMP NULL,
+      FOREIGN KEY (origin_warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (rejected_by) REFERENCES users(id)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE transfers_detail (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity DECIMAL(18, 2) NOT NULL,
+      FOREIGN KEY (transfer_id) REFERENCES transfers(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `);
+
   console.log("Todas las tablas creadas exitosamente.");
 
   // 5. Seed de datos
@@ -280,6 +437,29 @@ async function main() {
     { name: 'payment_types.create', description: 'Crear tipos de pago', group_name: 'payment_types' },
     { name: 'payment_types.update', description: 'Actualizar tipos de pago', group_name: 'payment_types' },
     { name: 'payment_types.delete', description: 'Eliminar tipos de pago', group_name: 'payment_types' },
+
+    // Inventario
+    { name: 'inventory.read', description: 'Consultar inventario', group_name: 'inventory' },
+    { name: 'inventory.adjustments.create', description: 'Crear ajustes de inventario', group_name: 'inventory' },
+    { name: 'inventory.adjustments.approve', description: 'Aprobar ajustes de inventario', group_name: 'inventory' },
+
+    // Compras
+    { name: 'purchases.read', description: 'Leer facturas de compra', group_name: 'purchases' },
+    { name: 'purchases.create', description: 'Crear facturas de compra', group_name: 'purchases' },
+    { name: 'purchases.accept', description: 'Aceptar facturas de compra', group_name: 'purchases' },
+    { name: 'purchases.cancel', description: 'Cancelar facturas de compra', group_name: 'purchases' },
+
+    // Ventas
+    { name: 'sales.read', description: 'Leer facturas de venta', group_name: 'sales' },
+    { name: 'sales.create', description: 'Crear facturas de venta', group_name: 'sales' },
+    { name: 'sales.accept', description: 'Aceptar facturas de venta', group_name: 'sales' },
+    { name: 'sales.cancel', description: 'Cancelar facturas de venta', group_name: 'sales' },
+
+    // Traslados
+    { name: 'transfers.read', description: 'Leer traslados', group_name: 'transfers' },
+    { name: 'transfers.create', description: 'Crear traslados', group_name: 'transfers' },
+    { name: 'transfers.accept', description: 'Aceptar traslados', group_name: 'transfers' },
+    { name: 'transfers.reject', description: 'Rechazar traslados', group_name: 'transfers' },
   ];
 
   for (const p of fixedPermissions) {

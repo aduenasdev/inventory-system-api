@@ -1,6 +1,13 @@
 # Inventory System API — Contexto Completo
 
-> [⬅️ Volver a README.md](README.md) para ver instalación y arquitectura general
+## 📚 Navegación de Documentación
+
+- 📖 **[README.md](README.md)** - Visión general, instalación y arquitectura
+- 🔧 **[context.md](context.md)** - Documentación técnica completa con ejemplos CURL (estás aquí)
+- 🎨 **[FRONTEND-INTEGRATION.md](FRONTEND-INTEGRATION.md)** - Guía de integración con frontend
+- 📊 **[REPORTES.md](REPORTES.md)** - Documentación de reportes y analytics
+
+---
 
 Este documento resume la configuración, estructura, endpoints y la lógica de negocio del backend. Sirve como referencia central para mantenimiento y evolución del proyecto.
 

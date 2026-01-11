@@ -13,6 +13,10 @@ import exchangeRateRoutes from "./modules/exchange_rates/exchange_rates.routes";
 import categoryRoutes from "./modules/categories/categories.routes";
 import productRoutes from "./modules/products/products.routes";
 import paymentTypeRoutes from "./modules/payment_types/payment_types.routes";
+import inventoryRoutes from "./modules/inventory/inventory.routes";
+import purchaseRoutes from "./modules/purchases/purchases.routes";
+import saleRoutes from "./modules/sales/sales.routes";
+import transferRoutes from "./modules/transfers/transfers.routes";
 
 const app = express();
 
@@ -32,6 +36,10 @@ app.use("/exchange-rates", exchangeRateRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
 app.use("/payment-types", paymentTypeRoutes);
+app.use("/inventory", inventoryRoutes);
+app.use("/purchases", purchaseRoutes);
+app.use("/sales", saleRoutes);
+app.use("/transfers", transferRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

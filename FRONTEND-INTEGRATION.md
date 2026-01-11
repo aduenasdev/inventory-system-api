@@ -1,6 +1,15 @@
 # Guía de Integración Frontend - Inventory System API
 
-## 🔐 Sistema de Autenticación
+## � Navegación de Documentación
+
+- 📖 **[README.md](README.md)** - Visión general, instalación y arquitectura
+- 🔧 **[context.md](context.md)** - Documentación técnica completa con ejemplos CURL
+- 🎨 **[FRONTEND-INTEGRATION.md](FRONTEND-INTEGRATION.md)** - Guía de integración con frontend (estás aquí)
+- 📊 **[REPORTES.md](REPORTES.md)** - Documentación de reportes y analytics
+
+---
+
+## �🔐 Sistema de Autenticación
 
 ### Flujo de Tokens
 - **Access Token**: Válido por 15 minutos, se envía en header `Authorization: Bearer <token>`
@@ -776,13 +785,20 @@ const canCreateUsers = user.permissions.includes('users.create');
 2. Agrupar por `group` para mejor UI
 3. Mostrar en formulario de asignación a roles
 
-**Permisos disponibles (38 total)**:
+**Permisos disponibles (49 total)**:
 - **users**: read, create, update, delete, roles.associate, warehouses.associate
 - **warehouses**: read, create, update, delete
 - **roles**: read, create, update, delete
 - **units**: read, create, update, delete
 - **currencies**: read, create, update, delete
 - **exchange_rates**: read, create, update, delete
+- **categories**: read, create, update, delete
+- **products**: read, create, update, delete
+- **payment_types**: read, create, update, delete
+- **inventory**: read, create, update, adjust
+- **purchases**: read, create, update, delete
+- **sales**: read, create, update, delete
+- **transfers**: read, create, update
 - **categories**: read, create, update, delete
 - **products**: read, create, update, delete
 - **payment_types**: read, create, update, delete
@@ -1682,6 +1698,7 @@ const handleError = (error) => {
 }
 ```
 
+
 **Validaciones**:
 - name: único, requerido
 - code: único, requerido
@@ -1751,3 +1768,1146 @@ const handleError = (error) => {
 ---
 
 **Resumen**: Con esta guía tienes toda la información necesaria para integrar el frontend con el backend. Cada endpoint está documentado con request/response, lógica de implementación, y manejo de errores. ¡Listo para construir la interfaz completa! 🚀
+
+---
+
+## 📊 11. INVENTORY MODULE (Inventario)
+
+### 11.1 GET /inventory/product/:productId
+**Descripción**: Ver stock de un producto en todos los almacenes
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.read`
+
+**Response Success (200)**:
+```json
+{
+  "productId": 5,
+  "productName": "Laptop Dell",
+  "productCode": "LAP-001",
+  "byWarehouse": [
+    {
+      "warehouseId": 1,
+      "warehouseName": "Almacén Central",
+      "quantity": "15.00"
+    },
+    {
+      "warehouseId": 2,
+      "warehouseName": "Almacén Sucursal",
+      "quantity": "8.00"
+    }
+  ],
+  "totalStock": "23.00"
+}
+```
+
+**Lógica Frontend**:
+1. Card/tabla mostrando stock por almacén
+2. Total general destacado
+3. Indicadores visuales: verde (>10), amarillo (5-10), rojo (<5)
+4. Usar en página de detalle de producto
+
+---
+
+### 11.2 GET /inventory/warehouse/:warehouseId
+**Descripción**: Ver stock completo de un almacén
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.read`
+
+**Response Success (200)**:
+```json
+{
+  "warehouseId": 1,
+  "warehouseName": "Almacén Central",
+  "products": [
+    {
+      "productId": 5,
+      "productName": "Laptop Dell",
+      "productCode": "LAP-001",
+      "quantity": "15.00",
+      "unitName": "Unidad"
+    }
+  ]
+}
+```
+
+**Lógica Frontend**:
+1. Tabla de productos con stock
+2. Filtros por producto, categoría
+3. Exportar a Excel/PDF
+4. Búsqueda en tiempo real
+
+---
+
+### 11.3 GET /inventory/kardex/:productId/:warehouseId
+**Descripción**: Ver historial de movimientos (kardex)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.read`
+
+**Response Success (200)**:
+```json
+{
+  "productId": 5,
+  "productName": "Laptop Dell",
+  "warehouseId": 1,
+  "warehouseName": "Almacén Central",
+  "movements": [
+    {
+      "id": 1,
+      "type": "PURCHASE",
+      "quantity": "10.00",
+      "reference": "COMP-2026-00001",
+      "reason": null,
+      "status": "APPROVED",
+      "createdAt": "2026-01-10T10:00:00.000Z",
+      "balance": "10.00"
+    },
+    {
+      "id": 2,
+      "type": "SALE",
+      "quantity": "-2.00",
+      "reference": "FV-2026-00001",
+      "reason": null,
+      "status": "APPROVED",
+      "createdAt": "2026-01-10T14:30:00.000Z",
+      "balance": "8.00"
+    }
+  ]
+}
+```
+
+**Lógica Frontend**:
+1. Timeline de movimientos (más recientes arriba)
+2. Colores por tipo: azul (PURCHASE), verde (ADJUSTMENT_ENTRY), rojo (SALE/ADJUSTMENT_EXIT)
+3. Columna de balance acumulado
+4. Filtrar por fecha, tipo
+5. Referencias clickeables (abrir compra/venta)
+
+---
+
+### 11.4 POST /inventory/adjust-entry
+**Descripción**: Ajuste manual de entrada (agregar inventario)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.adjust`
+
+**Request Body**:
+```json
+{
+  "productId": 5,
+  "warehouseId": 1,
+  "quantity": 5,
+  "reason": "Corrección por inventario físico - encontradas 5 unidades adicionales"
+}
+```
+
+**Validaciones**:
+- quantity: > 0, requerido
+- reason: requerido, min 10 caracteres
+
+**Response Success (201)**:
+```json
+{
+  "message": "Ajuste de entrada registrado exitosamente",
+  "movement": {
+    "id": 45,
+    "reference": "ADJ-1736518800000"
+  }
+}
+```
+
+**Lógica Frontend**:
+1. Modal de ajuste con selector de producto y almacén
+2. Campo cantidad (solo positivos)
+3. TextArea razón (obligatorio, placeholder con ejemplos)
+4. Confirmación antes de enviar
+5. Actualizar stock en vista inmediatamente
+
+**Casos de uso**:
+- "Inventario físico encontró unidades adicionales"
+- "Devolución de producto dañado reparado"
+- "Corrección de error de conteo"
+
+---
+
+### 11.5 POST /inventory/adjust-exit
+**Descripción**: Ajuste manual de salida (retirar inventario)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.adjust`
+
+**Request Body**:
+```json
+{
+  "productId": 5,
+  "warehouseId": 1,
+  "quantity": 2,
+  "reason": "Producto dañado en almacén - baja por pérdida"
+}
+```
+
+**Validaciones**:
+- quantity: > 0, <= stock actual
+- reason: requerido, min 10 caracteres
+
+**Response Success (201)**:
+```json
+{
+  "message": "Ajuste de salida registrado exitosamente",
+  "movement": {
+    "id": 46,
+    "reference": "ADJ-1736519400000"
+  }
+}
+```
+
+**Lógica Frontend**:
+1. Modal similar a ajuste de entrada
+2. Validar que cantidad no exceda stock actual
+3. Alert de confirmación (stock se reducirá)
+4. Razón obligatoria
+
+**Casos de uso**:
+- "Producto dañado/vencido - baja"
+- "Robo/pérdida de inventario"
+- "Corrección de error de registro"
+
+---
+
+### 11.6 GET /inventory/reports/value
+**Descripción**: Reporte de inventario valorizado
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.read`
+
+**Query Params (opcional)**:
+```
+warehouseId: number - Filtrar por almacén
+```
+
+**Response**: Ver [REPORTES.md](REPORTES.md#3️⃣-reporte-de-inventario-valorizado)
+
+**Lógica Frontend**:
+1. Dashboard con cards de totales por moneda
+2. Tabla detallada de productos
+3. Gráfico de valorización por almacén
+4. Filtro por almacén
+5. Exportar a Excel
+
+---
+
+### 11.7 GET /inventory/reports/adjustments
+**Descripción**: Reporte de historial de ajustes
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `inventory.read`
+
+**Query Params (obligatorios)**:
+```
+startDate: string (YYYY-MM-DD) - OBLIGATORIO
+endDate: string (YYYY-MM-DD) - OBLIGATORIO
+warehouseId: number (opcional)
+```
+
+**Response**: Ver [REPORTES.md](REPORTES.md#4️⃣-reporte-de-ajustes-de-inventario)
+
+**Lógica Frontend**:
+1. DateRangePicker (obligatorio)
+2. Tabla de ajustes con tipo, razón, usuario
+3. Filtros por almacén, tipo de ajuste
+4. Badge de tipo: verde (ENTRY), rojo (EXIT)
+
+---
+
+## 🛒 12. PURCHASES MODULE (Compras)
+
+### 12.1 GET /purchases
+**Descripción**: Listar todas las compras
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "supplierName": "Proveedor XYZ",
+    "invoiceNumber": "COMP-2026-00001",
+    "date": "2026-01-10",
+    "warehouseId": 1,
+    "warehouseName": "Almacén Central",
+    "currencyId": 1,
+    "currencyCode": "USD",
+    "status": "APPROVED",
+    "subtotal": "5000.00",
+    "total": "5000.00",
+    "createdBy": 1,
+    "acceptedBy": 2,
+    "createdAt": "2026-01-10T09:00:00.000Z",
+    "acceptedAt": "2026-01-10T10:30:00.000Z"
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Nro. Factura, Proveedor, Fecha, Almacén, Total, Estado
+2. Badge de estado:
+   - PENDING: amarillo
+   - APPROVED: verde
+   - CANCELLED: rojo
+3. Filtros: fecha, proveedor, almacén, estado
+4. Acciones según estado:
+   - PENDING: Editar, Aceptar, Eliminar
+   - APPROVED: Ver, Cancelar (si tiene permiso)
+   - CANCELLED: Solo ver
+
+---
+
+### 12.2 POST /purchases
+**Descripción**: Crear nueva compra en estado PENDING
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.create`
+
+**Request Body**:
+```json
+{
+  "supplierName": "Proveedor ABC",
+  "invoiceNumber": "PROV-2026-001",
+  "date": "2026-01-10",
+  "warehouseId": 1,
+  "currencyId": 1,
+  "products": [
+    {
+      "productId": 5,
+      "quantity": 10,
+      "unitPrice": 800.00
+    },
+    {
+      "productId": 8,
+      "quantity": 50,
+      "unitPrice": 2500.00
+    }
+  ]
+}
+```
+
+**Validaciones**:
+- supplierName: requerido
+- invoiceNumber: requerido, único
+- date: YYYY-MM-DD, no futuro
+- warehouseId: debe existir y tener acceso
+- currencyId: debe existir
+- products: array mínimo 1 producto
+  - productId: debe existir
+  - quantity: > 0
+  - unitPrice: >= 0
+
+**Response Success (201)**:
+```json
+{
+  "message": "Compra creada exitosamente. Estado: PENDING",
+  "purchase": {
+    "id": 5,
+    "invoiceNumber": "PROV-2026-001",
+    "status": "PENDING"
+  }
+}
+```
+
+**Lógica Frontend**:
+1. Formulario multi-paso:
+   - Paso 1: Datos generales (proveedor, nro, fecha, almacén, moneda)
+   - Paso 2: Agregar productos (búsqueda, cantidad, precio)
+   - Paso 3: Resumen y confirmación
+2. Tabla dinámica de productos:
+   - Agregar/quitar productos
+   - Calcular subtotales automáticamente
+   - Total general
+3. Guardar como PENDING primero
+4. Luego "Aceptar" para aplicar al inventario
+
+**Manejo de Errores**:
+- 400: "La moneda del producto X no coincide con la moneda de la compra"
+- 400: "Ya existe una compra con ese número de factura"
+- 403: "No tiene acceso al almacén seleccionado"
+
+---
+
+### 12.3 PUT /purchases/:id
+**Descripción**: Actualizar compra en estado PENDING
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.update`
+
+**Request Body**: Igual que POST
+
+**Response Success (200)**:
+```json
+{
+  "message": "Compra actualizada exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Solo permitir edición si estado = PENDING
+2. Cargar datos con GET /purchases/:id
+3. Pre-llenar formulario
+4. Permitir modificar todos los campos
+5. Mensaje si intenta editar APPROVED/CANCELLED
+
+---
+
+### 12.4 PUT /purchases/:id/accept
+**Descripción**: Aceptar compra y actualizar inventario
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.update`
+
+**Response Success (200)**:
+```json
+{
+  "message": "Compra aceptada. Inventario actualizado exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Aceptar Compra" solo si PENDING
+2. Modal de confirmación:
+   - "¿Aceptar compra COMP-2026-00001?"
+   - "Se agregará inventario al almacén X"
+   - Mostrar resumen de productos
+3. Al aceptar:
+   - Enviar PUT /purchases/:id/accept
+   - Mostrar loading
+   - Mensaje de éxito
+   - Actualizar lista (estado = APPROVED)
+
+**Efectos**:
+- Estado cambia a APPROVED
+- Se crean movimientos de inventario tipo PURCHASE
+- Stock se incrementa automáticamente
+
+---
+
+### 12.5 PUT /purchases/:id/cancel
+**Descripción**: Cancelar compra (revierte inventario si estaba APPROVED)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.delete`
+
+**Request Body**:
+```json
+{
+  "cancellationReason": "Factura duplicada en el sistema"
+}
+```
+
+**Validaciones**:
+- cancellationReason: requerido, min 10 caracteres
+
+**Response Success (200)**:
+```json
+{
+  "message": "Compra cancelada. Inventario revertido exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Cancelar Compra" solo si APPROVED
+2. Modal con campo de razón (obligatorio)
+3. Advertencia: "Esto revertirá el inventario agregado"
+4. Confirmación adicional
+5. Actualizar vista
+
+**Efectos**:
+- Estado cambia a CANCELLED
+- Si estaba APPROVED: se revierten los movimientos de inventario
+- No se puede cancelar si ya no hay stock suficiente
+
+---
+
+### 12.6 DELETE /purchases/:id
+**Descripción**: Eliminar compra en PENDING
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `purchases.delete`
+
+**Response Success (200)**:
+```json
+{
+  "message": "Compra eliminada exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Solo permitir si estado = PENDING
+2. Confirmación: "¿Eliminar compra? Esta acción no se puede deshacer"
+3. Remover de lista
+
+---
+
+## 💵 13. SALES MODULE (Ventas)
+
+### 13.1 GET /sales
+**Descripción**: Listar todas las ventas
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "invoiceNumber": "FV-2026-00001",
+    "customerName": "Cliente ABC",
+    "date": "2026-01-10",
+    "warehouseId": 1,
+    "warehouseName": "Almacén Central",
+    "currencyId": 1,
+    "currencyCode": "USD",
+    "paymentTypeId": 1,
+    "paymentType": "Efectivo",
+    "status": "APPROVED",
+    "subtotal": "2400.00",
+    "total": "2400.00",
+    "createdBy": 1,
+    "acceptedBy": 1,
+    "createdAt": "2026-01-10T14:00:00.000Z",
+    "acceptedAt": "2026-01-10T14:05:00.000Z"
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Nro. Factura, Cliente, Fecha, Total, Tipo Pago, Estado
+2. Badge de estado (igual que compras)
+3. Filtros: fecha, cliente, almacén, tipo pago, estado
+4. Botón "Nueva Venta" prominente
+5. Vista resumen: ventas del día, mes
+
+---
+
+### 13.2 POST /sales
+**Descripción**: Crear nueva venta (valida stock disponible)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.create`
+
+**Request Body**:
+```json
+{
+  "invoiceNumber": "FV-2026-00015",
+  "customerName": "Cliente XYZ",
+  "date": "2026-01-10",
+  "warehouseId": 1,
+  "currencyId": 1,
+  "paymentTypeId": 1,
+  "products": [
+    {
+      "productId": 5,
+      "quantity": 2,
+      "unitPrice": 1200.00
+    }
+  ]
+}
+```
+
+**Validaciones**:
+- Stock: valida que haya suficiente inventario en el almacén
+- Moneda: producto debe estar en la misma moneda que la venta
+- unitPrice: opcional, usa salePrice del producto si no se especifica
+
+**Response Success (201)**:
+```json
+{
+  "message": "Venta creada exitosamente. Estado: PENDING",
+  "sale": {
+    "id": 15,
+    "invoiceNumber": "FV-2026-00015",
+    "status": "PENDING"
+  }
+}
+```
+
+**Lógica Frontend**:
+1. Formulario similar a compras pero con:
+   - Campo de tipo de pago (dropdown)
+   - Validación de stock en tiempo real
+   - Precio sugerido = salePrice del producto
+2. Al seleccionar producto:
+   - Consultar GET /inventory/product/:id
+   - Mostrar stock disponible por almacén
+   - Validar que cantidad <= stock
+   - Alert si stock bajo
+3. Calcular total automáticamente
+4. Guardar como PENDING, luego "Facturar" para aplicar
+
+**Manejo de Errores**:
+- 400: "Stock insuficiente para el producto X en el almacén Y"
+- 400: "La moneda del producto no coincide"
+
+---
+
+### 13.3 PUT /sales/:id/accept
+**Descripción**: Aceptar/facturar venta (descuenta inventario)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.update`
+
+**Response Success (200)**:
+```json
+{
+  "message": "Venta aceptada. Inventario actualizado exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Facturar" solo si PENDING
+2. Confirmación con resumen
+3. Al facturar:
+   - Estado = APPROVED
+   - Stock se descuenta
+   - Generar PDF de factura (opcional)
+
+**Efectos**:
+- Movimientos SALE en inventario
+- Stock se reduce
+
+---
+
+### 13.4 PUT /sales/:id/cancel
+**Descripción**: Cancelar venta (devuelve inventario)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.delete`
+
+**Request Body**:
+```json
+{
+  "cancellationReason": "Cliente desistió de la compra"
+}
+```
+
+**Response Success (200)**:
+```json
+{
+  "message": "Venta cancelada. Inventario revertido exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Anular Venta" solo si APPROVED
+2. Modal con razón obligatoria
+3. Advertencia: "Se devolverá el stock al almacén"
+4. Confirmación
+5. Actualizar lista
+
+---
+
+### 13.5 GET /sales/reports/totals
+**Descripción**: Reporte de ventas totales con conversión de moneda
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.read`
+
+**Query Params (obligatorios)**:
+```
+startDate: string (YYYY-MM-DD) - OBLIGATORIO
+endDate: string (YYYY-MM-DD) - OBLIGATORIO
+targetCurrencyId: number - OBLIGATORIO
+```
+
+**Response**: Ver [REPORTES.md](REPORTES.md#1️⃣-reporte-de-ventas-totales-con-conversión-de-moneda)
+
+**Lógica Frontend**:
+1. Dashboard de ventas con:
+   - DateRangePicker
+   - Selector de moneda objetivo
+   - Botón "Generar Reporte"
+2. Visualización:
+   - Cards con totales por almacén
+   - Gráfico de barras por moneda
+   - Tabla detallada
+   - Total general convertido destacado
+3. Exportar a Excel/PDF
+
+---
+
+### 13.6 GET /sales/reports/cancelled
+**Descripción**: Reporte de ventas canceladas
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `sales.read`
+
+**Query Params (obligatorios)**:
+```
+startDate: string (YYYY-MM-DD) - OBLIGATORIO
+endDate: string (YYYY-MM-DD) - OBLIGATORIO
+```
+
+**Response**: Ver [REPORTES.md](REPORTES.md#2️⃣-reporte-de-ventas-canceladas)
+
+**Lógica Frontend**:
+1. DateRangePicker obligatorio
+2. Tabla: Nro. Factura, Cliente, Fecha, Total, Razón, Usuario que canceló
+3. Filtros adicionales por cliente, almacén
+4. Badge rojo para identificar canceladas
+
+---
+
+## 🔄 14. TRANSFERS MODULE (Traslados)
+
+### 14.1 GET /transfers
+**Descripción**: Listar todos los traslados
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `transfers.read`
+
+**Response Success (200)**:
+```json
+[
+  {
+    "id": 1,
+    "date": "2026-01-10",
+    "originWarehouseId": 1,
+    "originWarehouseName": "Almacén Central",
+    "destinationWarehouseId": 2,
+    "destinationWarehouseName": "Almacén Sucursal",
+    "status": "APPROVED",
+    "notes": "Traslado de inventario mensual",
+    "createdBy": 1,
+    "acceptedBy": 3,
+    "createdAt": "2026-01-10T08:00:00.000Z",
+    "acceptedAt": "2026-01-10T10:00:00.000Z"
+  }
+]
+```
+
+**Lógica Frontend**:
+1. Tabla: Fecha, Origen → Destino, Estado, Productos
+2. Badge de estado:
+   - PENDING: amarillo
+   - APPROVED: verde
+   - REJECTED: rojo
+3. Vista separada:
+   - "Traslados enviados" (origen en mis almacenes)
+   - "Traslados recibidos" (destino en mis almacenes)
+4. Acciones según rol:
+   - Almacén origen (PENDING): Editar, Eliminar
+   - Almacén destino (PENDING): Aceptar, Rechazar
+
+---
+
+### 14.2 POST /transfers
+**Descripción**: Crear nuevo traslado
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `transfers.create`
+
+**Request Body**:
+```json
+{
+  "date": "2026-01-10",
+  "originWarehouseId": 1,
+  "destinationWarehouseId": 2,
+  "notes": "Traslado de exceso de inventario",
+  "products": [
+    {
+      "productId": 5,
+      "quantity": 10
+    },
+    {
+      "productId": 8,
+      "quantity": 25
+    }
+  ]
+}
+```
+
+**Validaciones**:
+- originWarehouseId: debe tener acceso
+- destinationWarehouseId: debe existir
+- Origen ≠ destino
+- products: mínimo 1 producto
+- Stock: valida que haya suficiente en origen
+
+**Response Success (201)**:
+```json
+{
+  "message": "Traslado creado exitosamente. Estado: PENDING",
+  "transfer": {
+    "id": 12,
+    "status": "PENDING"
+  }
+}
+```
+
+**Lógica Frontend**:
+1. Formulario:
+   - Fecha
+   - Almacén origen (dropdown de mis almacenes)
+   - Almacén destino (dropdown de todos excepto origen)
+   - Notas/observaciones
+2. Tabla de productos:
+   - Al seleccionar producto: mostrar stock en origen
+   - Validar cantidad <= stock
+   - Agregar/quitar productos
+3. Crear como PENDING
+4. Esperar aceptación del almacén destino
+
+---
+
+### 14.3 PUT /transfers/:id/accept
+**Descripción**: Aceptar traslado (mueve inventario)
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `transfers.update`
+
+**Response Success (200)**:
+```json
+{
+  "message": "Traslado aceptado. Inventario movido exitosamente"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Aceptar Traslado" solo si:
+   - Estado = PENDING
+   - Usuario tiene acceso al almacén destino
+2. Modal de confirmación:
+   - "¿Aceptar traslado del Almacén X?"
+   - Mostrar lista de productos
+3. Al aceptar:
+   - Estado = APPROVED
+   - Stock se descuenta de origen
+   - Stock se incrementa en destino
+
+**Efectos**:
+- Movimientos TRANSFER_OUT en origen
+- Movimientos TRANSFER_IN en destino
+
+---
+
+### 14.4 PUT /transfers/:id/reject
+**Descripción**: Rechazar traslado
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `transfers.update`
+
+**Request Body**:
+```json
+{
+  "rejectionReason": "Stock insuficiente en destino para recibir"
+}
+```
+
+**Response Success (200)**:
+```json
+{
+  "message": "Traslado rechazado"
+}
+```
+
+**Lógica Frontend**:
+1. Botón "Rechazar" solo si:
+   - Estado = PENDING
+   - Usuario tiene acceso al almacén destino
+2. Modal con razón obligatoria
+3. Confirmación
+4. Actualizar lista (estado = REJECTED)
+
+---
+
+### 14.5 GET /transfers/reports/rejected
+**Descripción**: Reporte de traslados rechazados
+
+**Headers**: `Authorization: Bearer <accessToken>`
+
+**Permiso requerido**: `transfers.read`
+
+**Query Params (obligatorios)**:
+```
+startDate: string (YYYY-MM-DD) - OBLIGATORIO
+endDate: string (YYYY-MM-DD) - OBLIGATORIO
+```
+
+**Response**: Ver [REPORTES.md](REPORTES.md#5️⃣-reporte-de-traslados-rechazados)
+
+**Lógica Frontend**:
+1. DateRangePicker obligatorio
+2. Resumen por razón de rechazo (gráfico de dona)
+3. Tabla detallada de cada traslado rechazado
+4. Filtros por almacén, usuario que rechazó
+
+---
+
+## 🎨 15. COMPONENTES UI SUGERIDOS
+
+### 15.1 StatusBadge
+```jsx
+<StatusBadge status="PENDING" />
+<StatusBadge status="APPROVED" />
+<StatusBadge status="CANCELLED" />
+<StatusBadge status="REJECTED" />
+```
+
+### 15.2 StockIndicator
+```jsx
+<StockIndicator quantity={15} threshold={10} />
+// Verde si > threshold
+// Amarillo si 5-threshold
+// Rojo si < 5
+```
+
+### 15.3 DateRangePicker
+```jsx
+<DateRangePicker
+  startDate={startDate}
+  endDate={endDate}
+  onChange={(start, end) => { /* ... */ }}
+  required={true}
+/>
+```
+
+### 15.4 ProductSelector
+```jsx
+<ProductSelector
+  onSelect={(product) => { /* ... */ }}
+  warehouseId={warehouseId}
+  showStock={true}
+/>
+```
+
+### 15.5 CurrencyFormat
+```jsx
+<CurrencyFormat
+  value={1200.50}
+  currency="USD"
+  // Muestra: $1,200.50
+/>
+```
+
+---
+
+## 📝 16. VALIDACIONES COMUNES
+
+### Stock Validation
+```javascript
+const validateStock = async (productId, warehouseId, quantity) => {
+  const response = await api.get(`/inventory/product/${productId}`);
+  const warehouse = response.data.byWarehouse.find(w => w.warehouseId === warehouseId);
+  
+  if (!warehouse || parseFloat(warehouse.quantity) < quantity) {
+    throw new Error(`Stock insuficiente. Disponible: ${warehouse?.quantity || 0}`);
+  }
+};
+```
+
+### Currency Validation
+```javascript
+const validateCurrency = (productCurrency, documentCurrency) => {
+  if (productCurrency !== documentCurrency) {
+    throw new Error('La moneda del producto no coincide con la moneda del documento');
+  }
+};
+```
+
+### Date Validation
+```javascript
+const validateDateRange = (startDate, endDate) => {
+  if (!startDate || !endDate) {
+    throw new Error('Debe seleccionar un rango de fechas');
+  }
+  
+  if (new Date(startDate) > new Date(endDate)) {
+    throw new Error('La fecha inicial no puede ser mayor que la fecha final');
+  }
+};
+```
+
+---
+
+## 🔔 17. NOTIFICACIONES Y MENSAJES
+
+### Éxito
+- ✅ "Compra aceptada. Inventario actualizado"
+- ✅ "Venta cancelada. Stock devuelto al almacén"
+- ✅ "Traslado aprobado. Productos movidos exitosamente"
+
+### Advertencias
+- ⚠️ "Stock bajo: solo quedan 3 unidades"
+- ⚠️ "Esta acción revertirá el inventario"
+- ⚠️ "No podrá editar después de aceptar"
+
+### Errores
+- ❌ "Stock insuficiente para completar la venta"
+- ❌ "No tiene acceso a este almacén"
+- ❌ "Debe seleccionar al menos un producto"
+
+---
+
+## 📊 18. DASHBOARDS SUGERIDOS
+
+### Dashboard de Inventario
+- Card: Total de productos
+- Card: Valor total del inventario (por moneda)
+- Gráfico: Stock por almacén
+- Tabla: Productos con stock bajo (<5)
+- Timeline: Últimos movimientos
+
+### Dashboard de Ventas
+- Card: Ventas del día
+- Card: Ventas del mes
+- Card: Ticket promedio
+- Gráfico: Ventas por día (últimos 30 días)
+- Tabla: Top 10 productos más vendidos
+
+### Dashboard de Compras
+- Card: Compras pendientes de aprobación
+- Card: Total comprado este mes
+- Tabla: Últimas compras
+- Proveedores principales
+
+### Dashboard de Traslados
+- Card: Traslados pendientes (recibidos)
+- Card: Traslados enviados este mes
+- Tabla: Traslados pendientes de aceptación
+- Mapa de flujo entre almacenes
+
+---
+
+## 🎯 19. MEJORES PRÁCTICAS
+
+### 1. Caché de Datos
+```javascript
+// Cachear catálogos que no cambian frecuentemente
+const { data: units } = useQuery('units', fetchUnits, {
+  staleTime: 1000 * 60 * 60 // 1 hora
+});
+
+const { data: currencies } = useQuery('currencies', fetchCurrencies, {
+  staleTime: 1000 * 60 * 60
+});
+```
+
+### 2. Optimistic Updates
+```javascript
+// Al crear una venta, actualizar UI inmediatamente
+const mutation = useMutation(createSale, {
+  onMutate: async (newSale) => {
+    // Optimistic update
+    queryClient.setQueryData('sales', (old) => [...old, newSale]);
+  },
+  onError: (err, newSale, context) => {
+    // Revertir si falla
+    queryClient.setQueryData('sales', context.previousSales);
+  }
+});
+```
+
+### 3. Lazy Loading
+```javascript
+// Cargar reportes solo cuando se necesitan
+const SalesReports = lazy(() => import('./pages/SalesReports'));
+
+<Suspense fallback={<Loading />}>
+  <SalesReports />
+</Suspense>
+```
+
+### 4. Validación en Tiempo Real
+```javascript
+// Al escribir cantidad, validar stock inmediatamente
+const handleQuantityChange = debounce(async (quantity) => {
+  if (selectedProduct && selectedWarehouse) {
+    await validateStock(selectedProduct.id, selectedWarehouse.id, quantity);
+  }
+}, 500);
+```
+
+---
+
+## ✅ CHECKLIST DE IMPLEMENTACIÓN
+
+### Configuración Inicial
+- [ ] Configurar axios interceptors
+- [ ] Implementar refresh token logic
+- [ ] Crear ProtectedRoute component
+- [ ] Configurar state management (Context/Redux/Zustand)
+
+### Autenticación
+- [ ] Página de login
+- [ ] Logout functionality
+- [ ] Change password modal
+- [ ] Session persistence
+
+### Módulos Base
+- [ ] Users CRUD
+- [ ] Roles CRUD
+- [ ] Warehouses CRUD
+- [ ] Units, Currencies, Categories, Products CRUD
+
+### Módulos Operacionales
+- [ ] Inventory (stock, kardex, ajustes)
+- [ ] Purchases (CRUD, accept, cancel)
+- [ ] Sales (CRUD, accept, cancel)
+- [ ] Transfers (CRUD, accept, reject)
+
+### Reportes
+- [ ] Sales totals report
+- [ ] Cancelled sales report
+- [ ] Inventory value report
+- [ ] Adjustments report
+- [ ] Rejected transfers report
+
+### UI/UX
+- [ ] StatusBadge component
+- [ ] StockIndicator component
+- [ ] DateRangePicker component
+- [ ] ProductSelector component
+- [ ] CurrencyFormat component
+- [ ] Loading states
+- [ ] Error boundaries
+- [ ] Toast notifications
+
+### Testing
+- [ ] Unit tests para servicios
+- [ ] Integration tests para flujos críticos
+- [ ] E2E tests para compras/ventas
+
+---
+
+**Total de endpoints documentados: 76**
+**Módulos completos: 14**
+**Reportes: 5**
+
+Para más detalles técnicos, ver [context.md](context.md)
+Para documentación de reportes, ver [REPORTES.md](REPORTES.md)

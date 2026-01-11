@@ -1,6 +1,13 @@
 # 📦 Inventory System API
 
-> [🔗 Ver documentación detallada de la API en context.md](context.md)
+## 📚 Navegación de Documentación
+
+- 📖 **[README.md](README.md)** - Visión general, instalación y arquitectura (estás aquí)
+- 🔧 **[context.md](context.md)** - Documentación técnica completa con ejemplos CURL
+- 🎨 **[FRONTEND-INTEGRATION.md](FRONTEND-INTEGRATION.md)** - Guía de integración con frontend
+- 📊 **[REPORTES.md](REPORTES.md)** - Documentación de reportes y analytics
+
+---
 
 Backend moderno y escalable para sistema de inventarios con autenticación JWT, control de acceso basado en roles y permisos, y gestión de almacenes.
 
@@ -41,7 +48,15 @@ src/
 │       ├── exchange_rates.ts        # Tasas de cambio
 │       ├── categories.ts            # Categorías de productos
 │       ├── products.ts              # Productos
-│       └── payment_types.ts         # Tipos de pago
+│       ├── payment_types.ts         # Tipos de pago
+│       ├── inventory.ts             # Inventario por almacén
+│       ├── inventory_movements.ts   # Movimientos de inventario (kardex)
+│       ├── purchases.ts             # Compras
+│       ├── purchases_detail.ts      # Detalle de compras
+│       ├── sales.ts                 # Ventas
+│       ├── sales_detail.ts          # Detalle de ventas
+│       ├── transfers.ts             # Traslados entre almacenes
+│       └── transfers_detail.ts      # Detalle de traslados
 ├── middlewares/
 │   ├── auth.middleware.ts           # Validación de JWT
 │   ├── authorization.middleware.ts  # Control por permisos/roles
@@ -57,7 +72,11 @@ src/
 │   ├── exchange_rates/              # Tasas de cambio
 │   ├── categories/                  # Categorías de productos
 │   ├── products/                    # Productos
-│   └── payment_types/               # Tipos de pago
+│   ├── payment_types/               # Tipos de pago
+│   ├── inventory/                   # Inventario (stock, kardex, ajustes)
+│   ├── purchases/                   # Compras (CRUD, aceptar, cancelar)
+│   ├── sales/                       # Ventas (CRUD, aceptar, cancelar, reportes)
+│   └── transfers/                   # Traslados (CRUD, aceptar, rechazar, reportes)
 ├── utils/
 │   └── jwt.ts                       # Utilidades JWT
 ├── app.ts                           # Configuración Express
@@ -223,6 +242,31 @@ El sistema implementa control de acceso granular con:
 - `payment_types.update` - Actualizar tipos de pago
 - `payment_types.delete` - Eliminar tipos de pago
 
+#### Inventario (4 permisos)
+- `inventory.read` - Ver inventario y stock
+- `inventory.create` - Crear movimientos de inventario
+- `inventory.update` - Actualizar inventario
+- `inventory.adjust` - Realizar ajustes de inventario
+
+#### Compras (4 permisos)
+- `purchases.read` - Ver compras
+- `purchases.create` - Crear compras
+- `purchases.update` - Actualizar compras
+- `purchases.delete` - Eliminar compras
+
+#### Ventas (4 permisos)
+- `sales.read` - Ver ventas
+- `sales.create` - Crear ventas
+- `sales.update` - Actualizar ventas
+- `sales.delete` - Eliminar ventas
+
+#### Traslados (3 permisos)
+- `transfers.read` - Ver traslados
+- `transfers.create` - Crear traslados
+- `transfers.update` - Actualizar traslados
+
+**Total: 49 permisos**
+
 ### Ejemplo de Uso
 ```typescript
 // Proteger ruta con permiso específico
@@ -325,7 +369,46 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 - `PUT /payment-types/:id/disable` - Deshabilitar tipo de pago (soft delete)
 - `PUT /payment-types/:id/enable` - Habilitar tipo de pago
 
-**Total: 60 endpoints**
+### 📊 Inventory (6 endpoints)
+- `GET /inventory/product/:productId` - Ver stock de un producto en todos los almacenes (requiere `inventory.read`)
+- `GET /inventory/warehouse/:warehouseId` - Ver stock completo de un almacén
+- `GET /inventory/kardex/:productId/:warehouseId` - Ver kardex (historial de movimientos)
+- `POST /inventory/adjust-entry` - Ajuste de entrada manual (requiere `inventory.adjust`)
+- `POST /inventory/adjust-exit` - Ajuste de salida manual (requiere `inventory.adjust`)
+- `GET /inventory/reports/value` - Reporte de inventario valorizado
+- `GET /inventory/reports/adjustments` - Reporte de ajustes (requiere fechas)
+
+### 🛒 Purchases (7 endpoints)
+- `GET /purchases` - Listar compras (requiere `purchases.read`)
+- `GET /purchases/:id` - Ver compra específica
+- `POST /purchases` - Crear compra (requiere `purchases.create`)
+- `PUT /purchases/:id` - Actualizar compra en PENDING (requiere `purchases.update`)
+- `PUT /purchases/:id/accept` - Aceptar compra y actualizar inventario (requiere `purchases.update`)
+- `PUT /purchases/:id/cancel` - Cancelar compra y revertir inventario (requiere `purchases.delete`)
+- `DELETE /purchases/:id` - Eliminar compra en PENDING (requiere `purchases.delete`)
+
+### 💵 Sales (9 endpoints)
+- `GET /sales` - Listar ventas (requiere `sales.read`)
+- `GET /sales/:id` - Ver venta específica
+- `POST /sales` - Crear venta (requiere `sales.create`)
+- `PUT /sales/:id` - Actualizar venta en PENDING (requiere `sales.update`)
+- `PUT /sales/:id/accept` - Aceptar venta y actualizar inventario (requiere `sales.update`)
+- `PUT /sales/:id/cancel` - Cancelar venta y revertir inventario (requiere `sales.delete`)
+- `DELETE /sales/:id` - Eliminar venta en PENDING (requiere `sales.delete`)
+- `GET /sales/reports/totals` - Reporte de ventas totales con conversión (requiere fechas)
+- `GET /sales/reports/cancelled` - Reporte de ventas canceladas (requiere fechas)
+
+### 🔄 Transfers (8 endpoints)
+- `GET /transfers` - Listar traslados (requiere `transfers.read`)
+- `GET /transfers/:id` - Ver traslado específico
+- `POST /transfers` - Crear traslado (requiere `transfers.create`)
+- `PUT /transfers/:id` - Actualizar traslado en PENDING (requiere `transfers.update`)
+- `PUT /transfers/:id/accept` - Aceptar traslado y mover inventario (requiere `transfers.update`)
+- `PUT /transfers/:id/reject` - Rechazar traslado (requiere `transfers.update`)
+- `DELETE /transfers/:id` - Eliminar traslado en PENDING (requiere `transfers.update`)
+- `GET /transfers/reports/rejected` - Reporte de traslados rechazados (requiere fechas)
+
+**Total: 76 endpoints** (5 reportes incluidos)
 
 ---
 
@@ -416,12 +499,23 @@ export const createUserSchema = z.object({
 | **categories** | Categorías de productos (name, description, isActive) |
 | **products** | Productos (name, code, description, costPrice, salePrice, currencyId, unitId, categoryId, isActive) |
 | **payment_types** | Tipos de pago (type, description, isActive) |
+| **inventory** | Stock de productos por almacén (productId, warehouseId, quantity) |
+| **inventory_movements** | Kardex - historial de movimientos (type, productId, warehouseId, quantity, reference, reason, status) |
+| **purchases** | Compras (supplierName, date, warehouseId, currencyId, status: PENDING/APPROVED/CANCELLED, subtotal, total) |
+| **purchases_detail** | Detalle de compras (purchaseId, productId, quantity, unitPrice, subtotal) |
+| **sales** | Ventas (invoiceNumber, customerName, date, warehouseId, currencyId, paymentTypeId, status, subtotal, total) |
+| **sales_detail** | Detalle de ventas (saleId, productId, quantity, unitPrice, subtotal) |
+| **transfers** | Traslados entre almacenes (date, originWarehouseId, destinationWarehouseId, status: PENDING/APPROVED/REJECTED, notes) |
+| **transfers_detail** | Detalle de traslados (transferId, productId, quantity) |
 
 **Características:**
 - Todas las tablas usan `id` como clave primaria
 - Relaciones con `CASCADE` en eliminaciones
 - Timestamps automáticos (`createdAt`, `updatedAt`)
-- Índices en campos clave (email, token, roleId, etc.)
+- Índices en campos clave (email, token, roleId, productId, warehouseId, etc.)
+- **Auditoría completa**: created_by, accepted_by, cancelled_by, rejected_by con timestamps
+- **Estados de documentos**: PENDING → APPROVED/CANCELLED/REJECTED
+- **Decimal(10,2)** para cantidades y precios
 
 ---
 
@@ -434,17 +528,25 @@ export const createUserSchema = z.object({
 - ✅ **CORS** configurado
 - ✅ **Helmet** para headers de seguridad
 - ✅ **Validación estricta** de inputs con Zod
-- ✅ **Control granular** de permisos por endpoint
+- ✅ **Control granular** de permisos por endpoint (49 permisos)
 - ✅ **lastLogin tracking** para auditoría
 - ✅ **Sin registro público** (solo admins crean usuarios)
 - ✅ **Soft delete** de usuarios (deshabilitar en lugar de eliminar)
 - ✅ **Validación de estado** en login (usuarios deshabilitados no pueden acceder)
+- ✅ **Filtrado automático por almacenes** asignados al usuario
+- ✅ **Auditoría completa** en operaciones de inventario (quién, cuándo, por qué)
+- ✅ **Validación de stock** antes de ventas y traslados
+- ✅ **Conversión de monedas** usando tasas históricas del día de la operación
+- ✅ **Workflow de aprobación** para compras, ventas y traslados
+- ✅ **Reversión de inventario** al cancelar/rechazar operaciones
 
 ---
 
 ## 📚 Documentación
 
 - **[context.md](context.md)**: Documentación técnica completa con ejemplos CURL para cada endpoint
+- **[REPORTES.md](REPORTES.md)**: Documentación detallada de los 5 reportes implementados
+- **[FRONTEND-INTEGRATION.md](FRONTEND-INTEGRATION.md)**: Guía completa para integración con frontend
 - **README.md** (este archivo): Visión general del proyecto, instalación y arquitectura
 
 ---

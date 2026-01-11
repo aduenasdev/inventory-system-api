@@ -1,0 +1,62 @@
+import { z } from "zod";
+
+export const createSaleSchema = z.object({
+  body: z.object({
+    customerName: z.string().optional(),
+    customerPhone: z.string().optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    warehouseId: z.number().int().positive(),
+    currencyId: z.number().int().positive(),
+    notes: z.string().optional(),
+    details: z.array(
+      z.object({
+        productId: z.number().int().positive(),
+        quantity: z.number().positive(),
+        unitPrice: z.number().positive(),
+        paymentTypeId: z.number().int().positive(),
+      })
+    ).min(1, "Debe incluir al menos un producto"),
+  }),
+});
+
+export const getSaleByIdSchema = z.object({
+  params: z.object({
+    id: z.string().transform(Number),
+  }),
+});
+
+export const acceptSaleSchema = z.object({
+  params: z.object({
+    id: z.string().transform(Number),
+  }),
+});
+
+export const cancelSaleSchema = z.object({
+  params: z.object({
+    id: z.string().transform(Number),
+  }),
+  body: z.object({
+    cancellationReason: z.string().min(10, "El motivo debe tener al menos 10 caracteres"),
+  }),
+});
+
+export const getDailySalesReportSchema = z.object({
+  query: z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+});
+
+export const getCancelledSalesReportSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+  }),
+});
+
+export const getSalesTotalsReportSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    targetCurrencyId: z.string().transform(Number),
+  }),
+});
