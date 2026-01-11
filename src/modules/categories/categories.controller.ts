@@ -6,6 +6,7 @@ import {
   updateCategory,
   disableCategory,
   enableCategory,
+  deleteCategory,
 } from "./categories.service";
 
 export async function createCategoryHandler(req: Request, res: Response) {
@@ -61,6 +62,16 @@ export async function enableCategoryHandler(req: Request, res: Response) {
   try {
     const { categoryId } = req.params;
     const result = await enableCategory(Number(categoryId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deleteCategoryHandler(req: Request, res: Response) {
+  try {
+    const { categoryId } = req.params;
+    const result = await deleteCategory(Number(categoryId));
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

@@ -7,6 +7,7 @@ export const createWarehouseSchema = z.object({
     municipio: z.string().min(1, { message: "El municipio es requerido" }),
     direccion: z.string().optional(),
     ubicacion: z.string().optional(),
+    active: z.boolean().optional(),
   }),
 });
 
@@ -17,6 +18,7 @@ export const updateWarehouseSchema = z.object({
     municipio: z.string().min(1, { message: "El municipio es requerido" }).optional(),
     direccion: z.string().optional(),
     ubicacion: z.string().optional(),
+    active: z.boolean().optional(),
   }),
   params: z.object({
     warehouseId: z.string(),

@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, text } from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, varchar, text, boolean } from "drizzle-orm/mysql-core";
 
 export const warehouses = mysqlTable("warehouses", {
   id: serial("id").primaryKey(),
@@ -7,4 +7,5 @@ export const warehouses = mysqlTable("warehouses", {
   municipio: varchar("municipio", { length: 100 }).notNull(),
   direccion: text("direccion"),
   ubicacion: varchar("ubicacion", { length: 255 }), // coordenadas del mapa (lat,lng)
+  active: boolean("active").notNull().default(false),
 });

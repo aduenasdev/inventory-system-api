@@ -104,7 +104,8 @@ async function main() {
       provincia VARCHAR(100) NOT NULL,
       municipio VARCHAR(100) NOT NULL,
       direccion TEXT,
-      ubicacion VARCHAR(255)
+      ubicacion VARCHAR(255),
+      active BOOLEAN NOT NULL DEFAULT FALSE
     )
   `);
 

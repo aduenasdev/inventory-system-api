@@ -1,5 +1,6 @@
 import { db } from "../../db/connection";
 import { categories } from "../../db/schema/categories";
+import { products } from "../../db/schema/products";
 import { eq } from "drizzle-orm";
 
 export async function createCategory(data: {
@@ -45,10 +46,24 @@ export async function updateCategory(
   if (data.description !== undefined) updateData.description = data.description;
 
   await db.update(categories).set(updateData).where(eq(categories.id, categoryId));
-  return { message: "Categoría actualizada" };
+  
+  // Retornar la categoría actualizada
+  const [updated] = await db.select().from(categories).where(eq(categories.id, categoryId));
+  return updated;
 }
 
 export async function disableCategory(categoryId: number) {
+  // Verificar si la categoría tiene productos asociados
+  const productsWithCategory = await db
+    .select()
+    .from(products)
+    .where(eq(products.categoryId, categoryId))
+    .limit(1);
+
+  if (productsWithCategory.length > 0) {
+    throw new Error("No se puede deshabilitar la categoría porque tiene productos asociados");
+  }
+
   await db.update(categories).set({ isActive: false }).where(eq(categories.id, categoryId));
   return { message: "Categoría deshabilitada" };
 }
@@ -56,4 +71,20 @@ export async function disableCategory(categoryId: number) {
 export async function enableCategory(categoryId: number) {
   await db.update(categories).set({ isActive: true }).where(eq(categories.id, categoryId));
   return { message: "Categoría habilitada" };
+}
+
+export async function deleteCategory(categoryId: number) {
+  // Verificar si la categoría tiene productos asociados
+  const productsWithCategory = await db
+    .select()
+    .from(products)
+    .where(eq(products.categoryId, categoryId))
+    .limit(1);
+
+  if (productsWithCategory.length > 0) {
+    throw new Error("No se puede eliminar la categoría porque tiene productos asociados");
+  }
+
+  await db.delete(categories).where(eq(categories.id, categoryId));
+  return { message: "Categoría eliminada exitosamente" };
 }

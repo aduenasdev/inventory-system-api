@@ -6,6 +6,7 @@ import {
   updateCategoryHandler,
   disableCategoryHandler,
   enableCategoryHandler,
+  deleteCategoryHandler,
 } from "./categories.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
@@ -20,5 +21,6 @@ router.get("/:categoryId", authMiddleware, hasPermission("categories.read"), get
 router.put("/:categoryId", authMiddleware, hasPermission("categories.update"), validate(updateCategorySchema), updateCategoryHandler);
 router.put("/:categoryId/disable", authMiddleware, hasPermission("categories.delete"), disableCategoryHandler);
 router.put("/:categoryId/enable", authMiddleware, hasPermission("categories.update"), enableCategoryHandler);
+router.delete("/:categoryId", authMiddleware, hasPermission("categories.delete"), deleteCategoryHandler);
 
 export default router;

@@ -9,7 +9,8 @@ export async function createWarehouse(data: {
   provincia: string; 
   municipio: string; 
   direccion?: string; 
-  ubicacion?: string 
+  ubicacion?: string;
+  active?: boolean;
 }) {
   // Verificar si ya existe un almacén con ese nombre
   const existing = await db.select().from(warehouses).where(eq(warehouses.name, data.name));
@@ -39,7 +40,8 @@ export async function updateWarehouse(
     provincia?: string; 
     municipio?: string; 
     direccion?: string; 
-    ubicacion?: string 
+    ubicacion?: string;
+    active?: boolean;
   }
 ) {
   const updateData: any = {};
@@ -57,9 +59,13 @@ export async function updateWarehouse(
   if (data.municipio !== undefined) updateData.municipio = data.municipio;
   if (data.direccion !== undefined) updateData.direccion = data.direccion;
   if (data.ubicacion !== undefined) updateData.ubicacion = data.ubicacion;
+  if (data.active !== undefined) updateData.active = data.active;
   
   await db.update(warehouses).set(updateData).where(eq(warehouses.id, warehouseId));
-  return { message: "Almacén actualizado" };
+  
+  // Retornar el almacén actualizado
+  const [updated] = await db.select().from(warehouses).where(eq(warehouses.id, warehouseId));
+  return updated;
 }
 
 export async function deleteWarehouse(warehouseId: number) {
