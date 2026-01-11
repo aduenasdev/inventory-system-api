@@ -87,8 +87,16 @@ api.interceptors.response.use(
   "user": {
     "id": 1,
     "email": "admin@example.com",
-    "createdAt": "2025-01-09T10:00:00.000Z"
-  }
+    "nombre": "Juan",
+    "apellido": "Pérez",
+    "telefono": "809-555-0100"
+  },
+  "roles": [
+    {
+      "name": "Admin",
+      "permissions": ["users.read", "users.create", "warehouses.read"]
+    }
+  ]
 }
 ```
 
@@ -176,14 +184,10 @@ api.interceptors.response.use(
 {
   "id": 1,
   "email": "admin@example.com",
-  "createdAt": "2025-01-09T10:00:00.000Z",
-  "roles": [
-    {
-      "id": 1,
-      "name": "Admin",
-      "description": "Administrador del sistema"
-    }
-  ],
+  "nombre": "Juan",
+  "apellido": "Pérez",
+  "telefono": "809-555-0100",
+  "roles": ["Admin", "Manager"],
   "permissions": [
     "users.read",
     "users.create",
