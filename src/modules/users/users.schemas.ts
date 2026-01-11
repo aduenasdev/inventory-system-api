@@ -2,8 +2,12 @@ import { z } from "zod";
 
 export const assignRoleToUserSchema = z.object({
   body: z.object({
-    roleId: z.number({ message: "El ID del rol debe ser un número" }),
-  }),
+    roleId: z.number().optional(),
+    roleIds: z.array(z.number()).optional(),
+  }).refine(
+    (data) => data.roleId !== undefined || data.roleIds !== undefined,
+    { message: "Debe proporcionar roleId o roleIds" }
+  ),
   params: z.object({
     userId: z.string(),
   }),
@@ -39,6 +43,8 @@ export const updateUserSchema = z.object({
     nombre: z.string().min(1, { message: "El nombre es requerido" }).optional(),
     apellido: z.string().optional(),
     telefono: z.string().optional(),
+    roleIds: z.array(z.number()).optional(),
+    warehouseIds: z.array(z.number()).optional(),
   }),
   params: z.object({
     userId: z.string(),

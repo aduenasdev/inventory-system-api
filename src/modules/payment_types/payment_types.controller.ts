@@ -6,6 +6,7 @@ import {
   updatePaymentType,
   disablePaymentType,
   enablePaymentType,
+  deletePaymentType,
 } from "./payment_types.service";
 
 export async function createPaymentTypeHandler(req: Request, res: Response) {
@@ -19,7 +20,8 @@ export async function createPaymentTypeHandler(req: Request, res: Response) {
 
 export async function getPaymentTypesHandler(req: Request, res: Response) {
   try {
-    const paymentTypes = await getAllPaymentTypes();
+    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    const paymentTypes = await getAllPaymentTypes(active);
     res.status(200).json(paymentTypes);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener tipos de pago" });
@@ -61,6 +63,16 @@ export async function enablePaymentTypeHandler(req: Request, res: Response) {
   try {
     const { paymentTypeId } = req.params;
     const result = await enablePaymentType(Number(paymentTypeId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deletePaymentTypeHandler(req: Request, res: Response) {
+  try {
+    const { paymentTypeId } = req.params;
+    const result = await deletePaymentType(Number(paymentTypeId));
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

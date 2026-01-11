@@ -22,9 +22,11 @@ export async function createWarehouse(data: {
   return { id: insert.insertId, ...data };
 }
 
-export async function getAllWarehouses() {
-  const allWarehouses = await db.select().from(warehouses);
-  return allWarehouses;
+export async function getAllWarehouses(activeFilter?: boolean) {
+  if (activeFilter !== undefined) {
+    return db.select().from(warehouses).where(eq(warehouses.active, activeFilter));
+  }
+  return db.select().from(warehouses);
 }
 
 export async function getWarehouseById(warehouseId: number) {

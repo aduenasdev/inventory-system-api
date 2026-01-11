@@ -6,6 +6,7 @@ import {
   updateCurrencyHandler,
   disableCurrencyHandler,
   enableCurrencyHandler,
+  deleteCurrencyHandler,
 } from "./currencies.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
@@ -20,5 +21,6 @@ router.get("/:currencyId", authMiddleware, hasPermission("currencies.read"), get
 router.put("/:currencyId", authMiddleware, hasPermission("currencies.update"), validate(updateCurrencySchema), updateCurrencyHandler);
 router.put("/:currencyId/disable", authMiddleware, hasPermission("currencies.delete"), disableCurrencyHandler);
 router.put("/:currencyId/enable", authMiddleware, hasPermission("currencies.update"), enableCurrencyHandler);
+router.delete("/:currencyId", authMiddleware, hasPermission("currencies.delete"), deleteCurrencyHandler);
 
 export default router;

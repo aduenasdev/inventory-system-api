@@ -24,7 +24,10 @@ export async function createUnit(data: {
   return { id: insert.insertId, ...data };
 }
 
-export async function getAllUnits() {
+export async function getAllUnits(activeFilter?: boolean) {
+  if (activeFilter !== undefined) {
+    return db.select().from(units).where(eq(units.isActive, activeFilter));
+  }
   return db.select().from(units);
 }
 
@@ -66,7 +69,10 @@ export async function updateUnit(
   if (data.type) updateData.type = data.type;
 
   await db.update(units).set(updateData).where(eq(units.id, unitId));
-  return { message: "Unidad actualizada" };
+  
+  // Retornar la unidad actualizada
+  const [updated] = await db.select().from(units).where(eq(units.id, unitId));
+  return updated;
 }
 
 export async function disableUnit(unitId: number) {

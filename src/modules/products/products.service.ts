@@ -32,7 +32,10 @@ export async function createProduct(data: {
   return { id: insert.insertId, ...data };
 }
 
-export async function getAllProducts() {
+export async function getAllProducts(activeFilter?: boolean) {
+  if (activeFilter !== undefined) {
+    return db.select().from(products).where(eq(products.isActive, activeFilter));
+  }
   return db.select().from(products);
 }
 

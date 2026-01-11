@@ -20,7 +20,8 @@ export async function createProductHandler(req: Request, res: Response) {
 
 export async function getProductsHandler(req: Request, res: Response) {
   try {
-    const products = await getAllProducts();
+    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    const products = await getAllProducts(active);
     res.status(200).json(products);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener productos" });

@@ -6,6 +6,7 @@ import {
   updateCurrency,
   disableCurrency,
   enableCurrency,
+  deleteCurrency,
 } from "./currencies.service";
 
 export async function createCurrencyHandler(req: Request, res: Response) {
@@ -19,7 +20,8 @@ export async function createCurrencyHandler(req: Request, res: Response) {
 
 export async function getCurrenciesHandler(req: Request, res: Response) {
   try {
-    const currencies = await getAllCurrencies();
+    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    const currencies = await getAllCurrencies(active);
     res.status(200).json(currencies);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener monedas" });
@@ -61,6 +63,16 @@ export async function enableCurrencyHandler(req: Request, res: Response) {
   try {
     const { currencyId } = req.params;
     const result = await enableCurrency(Number(currencyId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deleteCurrencyHandler(req: Request, res: Response) {
+  try {
+    const { currencyId } = req.params;
+    const result = await deleteCurrency(Number(currencyId));
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

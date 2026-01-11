@@ -17,7 +17,10 @@ export async function createCategory(data: {
   return { id: insert.insertId, ...data };
 }
 
-export async function getAllCategories() {
+export async function getAllCategories(activeFilter?: boolean) {
+  if (activeFilter !== undefined) {
+    return db.select().from(categories).where(eq(categories.isActive, activeFilter));
+  }
   return db.select().from(categories);
 }
 

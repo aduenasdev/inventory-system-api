@@ -35,7 +35,7 @@ app.use("/currencies", currencyRoutes);
 app.use("/exchange-rates", exchangeRateRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
-app.use("/payment-types", paymentTypeRoutes);
+app.use("/payment_types", paymentTypeRoutes);
 app.use("/inventory", inventoryRoutes);
 app.use("/purchases", purchaseRoutes);
 app.use("/sales", saleRoutes);

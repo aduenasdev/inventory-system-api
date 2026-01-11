@@ -19,7 +19,8 @@ export async function createUnitHandler(req: Request, res: Response) {
 
 export async function getUnitsHandler(req: Request, res: Response) {
   try {
-    const units = await getAllUnits();
+    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    const units = await getAllUnits(active);
     res.status(200).json(units);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener unidades" });

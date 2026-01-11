@@ -6,6 +6,7 @@ import {
   updatePaymentTypeHandler,
   disablePaymentTypeHandler,
   enablePaymentTypeHandler,
+  deletePaymentTypeHandler,
 } from "./payment_types.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
@@ -20,5 +21,6 @@ router.get("/:paymentTypeId", authMiddleware, hasPermission("payment_types.read"
 router.put("/:paymentTypeId", authMiddleware, hasPermission("payment_types.update"), validate(updatePaymentTypeSchema), updatePaymentTypeHandler);
 router.put("/:paymentTypeId/disable", authMiddleware, hasPermission("payment_types.delete"), disablePaymentTypeHandler);
 router.put("/:paymentTypeId/enable", authMiddleware, hasPermission("payment_types.update"), enablePaymentTypeHandler);
+router.delete("/:paymentTypeId", authMiddleware, hasPermission("payment_types.delete"), deletePaymentTypeHandler);
 
 export default router;

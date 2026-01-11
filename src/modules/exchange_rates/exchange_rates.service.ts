@@ -76,7 +76,10 @@ export async function updateExchangeRate(
   if (data.date) updateData.date = new Date(data.date);
 
   await db.update(exchangeRates).set(updateData).where(eq(exchangeRates.id, exchangeRateId));
-  return { message: "Tasa de cambio actualizada" };
+  
+  // Retornar la tasa de cambio actualizada
+  const [updated] = await db.select().from(exchangeRates).where(eq(exchangeRates.id, exchangeRateId));
+  return updated;
 }
 
 export async function deleteExchangeRate(exchangeRateId: number) {

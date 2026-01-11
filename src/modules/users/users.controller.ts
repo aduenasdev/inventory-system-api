@@ -1,11 +1,11 @@
 import { Request, Response } from "express";
-import { assignRoleToUser, removeRoleFromUser, createUser, getAllUsers, getUserById, updateUser, disableUser, enableUser } from "./users.service";
+import { assignRoleToUser, removeRoleFromUser, createUser, getAllUsers, getUserById, updateUser, disableUser, enableUser, deleteUser } from "./users.service";
 
 export async function assignRoleToUserHandler(req: Request, res: Response) {
   try {
     const { userId } = req.params;
-    const { roleId } = req.body;
-    const result = await assignRoleToUser(Number(userId), roleId);
+    const currentUserId = res.locals.user.id;
+    const result = await assignRoleToUser(Number(userId), req.body, currentUserId);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -15,7 +15,8 @@ export async function assignRoleToUserHandler(req: Request, res: Response) {
 export async function removeRoleFromUserHandler(req: Request, res: Response) {
   try {
     const { userId, roleId } = req.params;
-    const result = await removeRoleFromUser(Number(userId), Number(roleId));
+    const currentUserId = res.locals.user.id;
+    const result = await removeRoleFromUser(Number(userId), Number(roleId), currentUserId);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -64,7 +65,8 @@ export async function updateUserHandler(req: Request, res: Response) {
 export async function disableUserHandler(req: Request, res: Response) {
   try {
     const { userId } = req.params;
-    const result = await disableUser(Number(userId));
+    const currentUserId = res.locals.user.id;
+    const result = await disableUser(Number(userId), currentUserId);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -75,6 +77,17 @@ export async function enableUserHandler(req: Request, res: Response) {
   try {
     const { userId } = req.params;
     const result = await enableUser(Number(userId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deleteUserHandler(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const currentUserId = res.locals.user.id;
+    const result = await deleteUser(Number(userId), currentUserId);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

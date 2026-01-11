@@ -21,7 +21,8 @@ export async function createWarehouseHandler(req: Request, res: Response) {
 
 export async function getWarehousesHandler(req: Request, res: Response) {
   try {
-    const warehouses = await getAllWarehouses();
+    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    const warehouses = await getAllWarehouses(active);
     res.status(200).json(warehouses);
   } catch (error: any) {
     res.status(500).json({ message: "Error fetching warehouses" });
