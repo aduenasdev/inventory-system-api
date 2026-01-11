@@ -10,7 +10,7 @@ export async function registerHandler(req: Request, res: Response) {
   try {
     const { user, accessToken, refreshToken } = await registerUser(req.body);
     res.status(201).json({
-      message: "User registered successfully",
+      message: "Usuario registrado exitosamente",
       user,
       accessToken,
       refreshToken,
@@ -22,12 +22,14 @@ export async function registerHandler(req: Request, res: Response) {
 
 export async function loginHandler(req: Request, res: Response) {
   try {
-    const { user, accessToken, refreshToken } = await loginUser({
+    const { user, roles, permissions, accessToken, refreshToken } = await loginUser({
       body: req.body
     } as any);
     res.status(200).json({
-      message: "Login successful",
+      message: "Inicio de sesión exitoso",
       user,
+      roles,
+      permissions,
       accessToken,
       refreshToken,
     });
@@ -42,7 +44,7 @@ export async function refreshTokenHandler(req: Request, res: Response) {
       req.body.refreshToken
     );
     res.status(200).json({
-      message: "Tokens refreshed successfully",
+      message: "Tokens renovados exitosamente",
       accessToken,
       refreshToken,
     });
