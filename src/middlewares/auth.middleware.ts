@@ -31,6 +31,9 @@ export async function authMiddleware(
       .select({
         id: users.id,
         email: users.email,
+        nombre: users.nombre,
+        apellido: users.apellido,
+        telefono: users.telefono,
       })
       .from(users)
       .where(eq(users.id, decoded.userId));

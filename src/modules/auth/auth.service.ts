@@ -133,7 +133,13 @@ export async function loginUser(data: LoginUserInput) {
     }));
 
     return {
-      user: { id: user.id, email: user.email },
+      user: { 
+        id: user.id, 
+        email: user.email,
+        nombre: user.nombre,
+        apellido: user.apellido,
+        telefono: user.telefono
+      },
       roles: rolesWithPermissions,
       accessToken,
       refreshToken,
