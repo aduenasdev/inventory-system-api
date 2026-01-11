@@ -206,15 +206,27 @@ curl -X POST http://localhost:3000/auth/login \
 ```json
 {
   "message": "Login successful",
-  "user": { "id": 1, "email": "admin@example.com" },
-  "roles": [
-    {
-      "name": "admin",
-      "permissions": ["users.read", "users.create", "users.update", "users.delete", "warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete", "roles.read", "roles.create", "roles.update", "roles.delete", "users.roles.associate", "users.warehouses.associate"]
-    }
-  ],
   "accessToken": "eyJhbGc...",
-  "refreshToken": "eyJhbGc..."
+  "refreshToken": "eyJhbGc...",
+  "user": {
+    "id": 1,
+    "email": "admin@example.com",
+    "nombre": "Juan",
+    "apellido": "Pérez",
+    "telefono": "809-555-0100"
+  },
+  "roles": ["admin", "manager"],
+  "permissions": [
+    "users.read",
+    "users.create",
+    "users.update",
+    "users.delete",
+    "warehouses.read",
+    "warehouses.create",
+    "roles.read",
+    "categories.read",
+    "..."
+  ]
 }
 ```
 

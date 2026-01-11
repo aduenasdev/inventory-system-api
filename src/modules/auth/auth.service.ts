@@ -132,6 +132,10 @@ export async function loginUser(data: LoginUserInput) {
       permissions: rolePermRows.filter(p => p.roleId === r.roleId).map(p => p.permissionName),
     }));
 
+    // Extract flat arrays for roles and permissions
+    const roleNames = rolesForUser.map(r => r.roleName.toLowerCase());
+    const allPermissions = [...new Set(rolePermRows.map(p => p.permissionName))];
+
     return {
       user: { 
         id: user.id, 
@@ -140,7 +144,8 @@ export async function loginUser(data: LoginUserInput) {
         apellido: user.apellido,
         telefono: user.telefono
       },
-      roles: rolesWithPermissions,
+      roles: roleNames,
+      permissions: allPermissions,
       accessToken,
       refreshToken,
     };

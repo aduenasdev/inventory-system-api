@@ -91,11 +91,16 @@ api.interceptors.response.use(
     "apellido": "Pérez",
     "telefono": "809-555-0100"
   },
-  "roles": [
-    {
-      "name": "Admin",
-      "permissions": ["users.read", "users.create", "warehouses.read"]
-    }
+  "roles": ["admin", "manager"],
+  "permissions": [
+    "categories.create",
+    "categories.read",
+    "categories.update",
+    "categories.delete",
+    "users.create",
+    "users.read",
+    "warehouses.read",
+    "..."
   ]
 }
 ```
