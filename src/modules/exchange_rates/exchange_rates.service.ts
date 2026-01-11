@@ -29,7 +29,12 @@ export async function createExchangeRate(data: {
     throw new Error(`Ya existe una tasa de cambio para estas monedas en la fecha ${data.date}`);
   }
 
-  const [insert] = await db.insert(exchangeRates).values(data);
+  const [insert] = await db.insert(exchangeRates).values({
+    fromCurrencyId: data.fromCurrencyId,
+    toCurrencyId: data.toCurrencyId,
+    rate: data.rate.toString(),
+    date: new Date(data.date),
+  });
   return { id: insert.insertId, ...data };
 }
 
@@ -67,8 +72,8 @@ export async function updateExchangeRate(
 ) {
   const updateData: any = {};
 
-  if (data.rate !== undefined) updateData.rate = data.rate;
-  if (data.date) updateData.date = data.date;
+  if (data.rate !== undefined) updateData.rate = data.rate.toString();
+  if (data.date) updateData.date = new Date(data.date);
 
   await db.update(exchangeRates).set(updateData).where(eq(exchangeRates.id, exchangeRateId));
   return { message: "Tasa de cambio actualizada" };

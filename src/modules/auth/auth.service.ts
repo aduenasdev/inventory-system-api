@@ -12,7 +12,7 @@ import { generateTokens } from "../../utils/jwt";
 import { RegisterUserInput, LoginUserInput, ChangePasswordInput } from "./auth.schemas";
 
 export async function registerUser(data: RegisterUserInput) {
-  const { email, password } = data;
+  const { email, password } = data.body;
 
   const existingUser = await db.select().from(users).where(eq(users.email, email));
 
@@ -25,6 +25,7 @@ export async function registerUser(data: RegisterUserInput) {
   const [newUser] = await db.insert(users).values({
     email,
     password: hashedPassword,
+    nombre: email.split('@')[0], // Nombre temporal desde email
   });
 
   // Assign default 'user' role via pivot

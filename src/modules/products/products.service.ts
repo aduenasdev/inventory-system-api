@@ -24,7 +24,11 @@ export async function createProduct(data: {
     throw new Error(`Ya existe un producto con el código "${data.code}"`);
   }
 
-  const [insert] = await db.insert(products).values(data);
+  const [insert] = await db.insert(products).values({
+    ...data,
+    costPrice: data.costPrice !== undefined ? data.costPrice.toString() : undefined,
+    salePrice: data.salePrice !== undefined ? data.salePrice.toString() : undefined,
+  });
   return { id: insert.insertId, ...data };
 }
 
@@ -73,8 +77,8 @@ export async function updateProduct(
   }
 
   if (data.description !== undefined) updateData.description = data.description;
-  if (data.costPrice !== undefined) updateData.costPrice = data.costPrice;
-  if (data.salePrice !== undefined) updateData.salePrice = data.salePrice;
+  if (data.costPrice !== undefined) updateData.costPrice = data.costPrice.toString();
+  if (data.salePrice !== undefined) updateData.salePrice = data.salePrice.toString();
   if (data.currencyId) updateData.currencyId = data.currencyId;
   if (data.unitId) updateData.unitId = data.unitId;
   if (data.categoryId) updateData.categoryId = data.categoryId;
