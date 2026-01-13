@@ -1,6 +1,7 @@
 import { db } from "../../db/connection";
 import { products } from "../../db/schema/products";
 import { eq } from "drizzle-orm";
+import { processAndSaveImage, deleteProductImages } from "../../utils/imageStorage";
 
 export async function createProduct(data: {
   name: string;
@@ -98,4 +99,41 @@ export async function disableProduct(productId: number) {
 export async function enableProduct(productId: number) {
   await db.update(products).set({ isActive: true }).where(eq(products.id, productId));
   return { message: "Producto habilitado" };
+}
+
+// Subir imagen de producto
+export async function uploadProductImage(productId: number, imageBuffer: Buffer) {
+  // Verificar que el producto existe
+  const product = await getProductById(productId);
+  if (!product) {
+    throw new Error("Producto no encontrado");
+  }
+
+  // Si ya tenía imagen, eliminarla
+  if (product.imageUrl) {
+    await deleteProductImages(productId);
+  }
+
+  // Procesar y guardar nueva imagen
+  const { imageUrl } = await processAndSaveImage(productId, imageBuffer);
+
+  // Actualizar BD
+  await db.update(products).set({ imageUrl }).where(eq(products.id, productId));
+
+  return { imageUrl, message: "Imagen subida correctamente" };
+}
+
+// Eliminar imagen de producto
+export async function deleteProductImage(productId: number) {
+  const product = await getProductById(productId);
+  if (!product) {
+    throw new Error("Producto no encontrado");
+  }
+
+  if (product.imageUrl) {
+    await deleteProductImages(productId);
+    await db.update(products).set({ imageUrl: null }).where(eq(products.id, productId));
+  }
+
+  return { message: "Imagen eliminada" };
 }

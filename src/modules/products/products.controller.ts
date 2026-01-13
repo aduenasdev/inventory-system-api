@@ -7,6 +7,8 @@ import {
   updateProduct,
   disableProduct,
   enableProduct,
+  uploadProductImage,
+  deleteProductImage,
 } from "./products.service";
 
 export async function createProductHandler(req: Request, res: Response) {
@@ -73,6 +75,31 @@ export async function enableProductHandler(req: Request, res: Response) {
   try {
     const { productId } = req.params;
     const result = await enableProduct(Number(productId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function uploadProductImageHandler(req: Request, res: Response) {
+  try {
+    const { productId } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No se proporcionó ninguna imagen" });
+    }
+
+    const result = await uploadProductImage(Number(productId), req.file.buffer);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function deleteProductImageHandler(req: Request, res: Response) {
+  try {
+    const { productId } = req.params;
+    const result = await deleteProductImage(Number(productId));
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

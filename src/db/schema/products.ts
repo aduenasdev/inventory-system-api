@@ -10,6 +10,7 @@ export const products = mysqlTable("products", {
   currencyId: int("currency_id").notNull(),
   unitId: int("unit_id").notNull(),
   categoryId: int("category_id").notNull(),
+  imageUrl: varchar("image_url", { length: 500 }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().onUpdateNow(),

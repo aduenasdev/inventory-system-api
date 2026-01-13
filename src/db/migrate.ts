@@ -183,6 +183,7 @@ async function main() {
       currency_id INT NOT NULL,
       unit_id INT NOT NULL,
       category_id INT NOT NULL,
+      image_url VARCHAR(500),
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
