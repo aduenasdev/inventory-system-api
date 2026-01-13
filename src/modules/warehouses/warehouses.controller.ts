@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   createWarehouse,
   getAllWarehouses,
+  getUserActiveWarehouses,
   getWarehouseById,
   updateWarehouse,
   deleteWarehouse,
@@ -21,6 +22,20 @@ export async function createWarehouseHandler(req: Request, res: Response) {
 
 export async function getWarehousesHandler(req: Request, res: Response) {
   try {
+    // Si la ruta es /active/me, retornar solo warehouses activos del usuario
+    if (req.path === '/active/me') {
+      const userId = res.locals.user.id;
+      const warehouses = await getUserActiveWarehouses(userId);
+      return res.status(200).json(warehouses);
+    }
+    
+    // Si la ruta es /active, forzar active=true
+    if (req.path === '/active') {
+      const warehouses = await getAllWarehouses(true);
+      return res.status(200).json(warehouses);
+    }
+    
+    // Para /warehouses normal, usar el query param
     const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
     const warehouses = await getAllWarehouses(active);
     res.status(200).json(warehouses);

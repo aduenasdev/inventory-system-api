@@ -1513,7 +1513,7 @@ const handleError = (error) => {
 
 ## 💱 7. EXCHANGE RATES MODULE (Tasas de Cambio)
 
-### 7.1 GET /exchange-rates
+### 7.1 GET /exchange_rates
 **Descripción**: Listar todas las tasas de cambio
 
 **Headers**: `Authorization: Bearer <accessToken>`
@@ -1539,7 +1539,7 @@ const handleError = (error) => {
 
 ---
 
-### 7.2 GET /exchange-rates/latest/:from/:to
+### 7.2 GET /exchange_rates/latest/:from/:to
 **Descripción**: Obtener última tasa entre dos monedas
 
 **Headers**: `Authorization: Bearer <accessToken>`
@@ -1556,7 +1556,7 @@ const handleError = (error) => {
 
 ---
 
-### 7.3 POST /exchange-rates
+### 7.3 POST /exchange_rates
 **Descripción**: Crear nueva tasa de cambio
 
 **Headers**: `Authorization: Bearer <accessToken>`

@@ -5,7 +5,8 @@ import {
   getExchangeRateById,
   getLatestExchangeRate,
   updateExchangeRate,
-  deleteExchangeRate,
+  createBatchExchangeRates,
+  getCurrentExchangeRates,
 } from "./exchange_rates.service";
 
 export async function createExchangeRateHandler(req: Request, res: Response) {
@@ -19,7 +20,8 @@ export async function createExchangeRateHandler(req: Request, res: Response) {
 
 export async function getExchangeRatesHandler(req: Request, res: Response) {
   try {
-    const exchangeRates = await getAllExchangeRates();
+    const { startDate, endDate } = req.query;
+    const exchangeRates = await getAllExchangeRates(startDate as string, endDate as string);
     res.status(200).json(exchangeRates);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener tasas de cambio" });
@@ -39,9 +41,9 @@ export async function getExchangeRateHandler(req: Request, res: Response) {
 
 export async function getLatestExchangeRateHandler(req: Request, res: Response) {
   try {
-    const { fromCurrencyId, toCurrencyId } = req.params;
-    const exchangeRate = await getLatestExchangeRate(Number(fromCurrencyId), Number(toCurrencyId));
-    if (!exchangeRate) return res.status(404).json({ message: "No se encontró tasa de cambio para estas monedas" });
+    const { toCurrencyId } = req.params;
+    const exchangeRate = await getLatestExchangeRate(Number(toCurrencyId));
+    if (!exchangeRate) return res.status(404).json({ message: "No se encontró tasa de cambio de CUP a esta moneda" });
     res.status(200).json(exchangeRate);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener última tasa de cambio" });
@@ -58,12 +60,24 @@ export async function updateExchangeRateHandler(req: Request, res: Response) {
   }
 }
 
-export async function deleteExchangeRateHandler(req: Request, res: Response) {
+export async function createBatchExchangeRatesHandler(req: Request, res: Response) {
   try {
-    const { exchangeRateId } = req.params;
-    const result = await deleteExchangeRate(Number(exchangeRateId));
-    res.status(200).json(result);
+    console.log('📥 Batch request received:', JSON.stringify(req.body, null, 2));
+    const results = await createBatchExchangeRates(req.body);
+    console.log('✅ Batch created successfully:', results.length, 'rates');
+    res.status(201).json(results);
   } catch (error: any) {
+    console.error('❌ Batch error:', error.message);
+    console.error('❌ Stack:', error.stack);
     res.status(400).json({ message: error.message });
+  }
+}
+
+export async function getCurrentExchangeRatesHandler(req: Request, res: Response) {
+  try {
+    const rates = await getCurrentExchangeRates();
+    res.status(200).json(rates);
+  } catch (error: any) {
+    res.status(500).json({ message: "Error al obtener tasas vigentes" });
   }
 }

@@ -113,6 +113,7 @@ async function main() {
     CREATE TABLE user_warehouses (
       user_id INT NOT NULL,
       warehouse_id INT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
       PRIMARY KEY (user_id, warehouse_id),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE CASCADE
@@ -150,7 +151,7 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       from_currency_id INT NOT NULL,
       to_currency_id INT NOT NULL,
-      rate DECIMAL(18, 6) NOT NULL,
+      rate DECIMAL(18, 2) NOT NULL,
       date DATE NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -267,7 +268,7 @@ async function main() {
       quantity DECIMAL(18, 2) NOT NULL,
       unit_cost DECIMAL(18, 2) NOT NULL,
       original_currency_id INT,
-      exchange_rate_used DECIMAL(18, 6),
+      exchange_rate_used DECIMAL(18, 2),
       converted_unit_cost DECIMAL(18, 2),
       subtotal DECIMAL(18, 2) NOT NULL,
       FOREIGN KEY (purchase_id) REFERENCES purchases(id),
@@ -314,7 +315,7 @@ async function main() {
       unit_price DECIMAL(18, 2) NOT NULL,
       payment_type_id INT NOT NULL,
       original_currency_id INT,
-      exchange_rate_used DECIMAL(18, 6),
+      exchange_rate_used DECIMAL(18, 2),
       converted_unit_price DECIMAL(18, 2),
       subtotal DECIMAL(18, 2) NOT NULL,
       FOREIGN KEY (sale_id) REFERENCES sales(id),
@@ -473,11 +474,15 @@ async function main() {
                       SELECT ${adminRoleId}, p.id FROM permissions p`);
   console.log("Permisos asignados al rol admin.");
 
-  // Seeds de monedas comunes (USD y CUP)
+  // Seed de moneda base CUP (no puede ser eliminada ni editada)
+  await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places, is_active) VALUES 
+    ('Peso Cubano', 'CUP', '$', 2, TRUE)`);
+  console.log("Moneda base CUP creada (ID=1).");
+
+  // Seed de moneda USD
   await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places) VALUES 
-    ('Dólar Estadounidense', 'USD', '$', 2),
-    ('Peso Cubano', 'CUP', '$', 2)`);
-  console.log("Monedas USD y CUP creadas.");
+    ('Dólar Estadounidense', 'USD', '$', 2)`);
+  console.log("Moneda USD creada.");
 
   console.log("\n✅ Migración completada exitosamente!");
   console.log("📊 Base de datos creada desde cero con todas las tablas y datos iniciales.");

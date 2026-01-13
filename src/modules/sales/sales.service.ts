@@ -10,6 +10,7 @@ import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
+import { normalizeBusinessDate } from "../../utils/date";
 
 export class SalesService {
   // Generar número de factura
@@ -153,7 +154,7 @@ export class SalesService {
       invoiceNumber,
       customerName: data.customerName || null,
       customerPhone: data.customerPhone || null,
-      date: new Date(data.date),
+      date: normalizeBusinessDate(data.date),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",

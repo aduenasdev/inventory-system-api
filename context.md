@@ -739,31 +739,31 @@ curl -X PUT http://localhost:3000/currencies/1/enable \
 - Service: [src/modules/exchange_rates/exchange_rates.service.ts](src/modules/exchange_rates/exchange_rates.service.ts)
 - Schemas: [src/modules/exchange_rates/exchange_rates.schemas.ts](src/modules/exchange_rates/exchange_rates.schemas.ts)
 
-#### `GET /exchange-rates` → `hasPermission("exchange_rates.read")`
+#### `GET /exchange_rates` → `hasPermission("exchange_rates.read")`
 Lista todas las tasas de cambio.
 ```bash
-curl -X GET http://localhost:3000/exchange-rates \
+curl -X GET http://localhost:3000/exchange_rates \
   -H "Authorization: Bearer eyJhbGc..."
 ```
 
-#### `GET /exchange-rates/:id` → `hasPermission("exchange_rates.read")`
+#### `GET /exchange_rates/:id` → `hasPermission("exchange_rates.read")`
 Obtiene una tasa de cambio por ID.
 ```bash
-curl -X GET http://localhost:3000/exchange-rates/1 \
+curl -X GET http://localhost:3000/exchange_rates/1 \
   -H "Authorization: Bearer eyJhbGc..."
 ```
 
-#### `GET /exchange-rates/latest/:from/:to` → `hasPermission("exchange_rates.read")`
+#### `GET /exchange_rates/latest/:from/:to` → `hasPermission("exchange_rates.read")`
 Obtiene la última tasa de cambio entre dos monedas.
 ```bash
-curl -X GET http://localhost:3000/exchange-rates/latest/1/2 \
+curl -X GET http://localhost:3000/exchange_rates/latest/1/2 \
   -H "Authorization: Bearer eyJhbGc..."
 ```
 
-#### `POST /exchange-rates` → `hasPermission("exchange_rates.create")`
+#### `POST /exchange_rates` → `hasPermission("exchange_rates.create")`
 Crea una nueva tasa de cambio. Solo se permite una tasa por combinación de monedas por día.
 ```bash
-curl -X POST http://localhost:3000/exchange-rates \
+curl -X POST http://localhost:3000/exchange_rates \
   -H "Authorization: Bearer eyJhbGc..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -774,10 +774,10 @@ curl -X POST http://localhost:3000/exchange-rates \
   }'
 ```
 
-#### `PUT /exchange-rates/:id` → `hasPermission("exchange_rates.update")`
+#### `PUT /exchange_rates/:id` → `hasPermission("exchange_rates.update")`
 Actualiza una tasa de cambio existente.
 ```bash
-curl -X PUT http://localhost:3000/exchange-rates/1 \
+curl -X PUT http://localhost:3000/exchange_rates/1 \
   -H "Authorization: Bearer eyJhbGc..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -785,10 +785,10 @@ curl -X PUT http://localhost:3000/exchange-rates/1 \
   }'
 ```
 
-#### `DELETE /exchange-rates/:id` → `hasPermission("exchange_rates.delete")`
+#### `DELETE /exchange_rates/:id` → `hasPermission("exchange_rates.delete")`
 Elimina una tasa de cambio.
 ```bash
-curl -X DELETE http://localhost:3000/exchange-rates/1 \
+curl -X DELETE http://localhost:3000/exchange_rates/1 \
   -H "Authorization: Bearer eyJhbGc..."
 ```
 

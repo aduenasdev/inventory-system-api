@@ -19,8 +19,12 @@ export async function createCategoryHandler(req: Request, res: Response) {
 }
 
 export async function getCategoriesHandler(req: Request, res: Response) {
-  try {
-    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+  try {    // Si la ruta es /active, forzar active=true
+    if (req.path === '/active') {
+      const categories = await getAllCategories(true);
+      return res.status(200).json(categories);
+    }
+        const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
     const categories = await getAllCategories(active);
     res.status(200).json(categories);
   } catch (error: any) {

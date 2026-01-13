@@ -16,6 +16,9 @@ import { createWarehouseSchema, updateWarehouseSchema, assignUserToWarehouseSche
 
 const router = Router();
 
+// Public endpoint - Mis almacenes activos (solo requiere login)
+router.get("/active/me", authMiddleware, getWarehousesHandler);
+
 // Warehouses CRUD
 router.post("/", authMiddleware, hasPermission("warehouses.create"), validate(createWarehouseSchema), createWarehouseHandler);
 router.get("/", authMiddleware, hasPermission("warehouses.read"), getWarehousesHandler);

@@ -15,6 +15,9 @@ import { createPaymentTypeSchema, updatePaymentTypeSchema } from "./payment_type
 
 const router = Router();
 
+// Public endpoint - Tipos de pago activos (solo requiere login)
+router.get("/active", authMiddleware, getPaymentTypesHandler);
+
 router.post("/", authMiddleware, hasPermission("payment_types.create"), validate(createPaymentTypeSchema), createPaymentTypeHandler);
 router.get("/", authMiddleware, hasPermission("payment_types.read"), getPaymentTypesHandler);
 router.get("/:paymentTypeId", authMiddleware, hasPermission("payment_types.read"), getPaymentTypeHandler);

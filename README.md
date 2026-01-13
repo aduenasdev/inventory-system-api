@@ -337,12 +337,12 @@ router.delete('/:id', authenticateToken, isRole('admin'), deleteUser);
 - `PUT /currencies/:id/enable` - Habilitar moneda
 
 ### 💱 Exchange Rates (6 endpoints)
-- `GET /exchange-rates` - Listar tasas de cambio (requiere `exchange_rates.read`)
-- `GET /exchange-rates/:id` - Ver tasa específica
-- `GET /exchange-rates/latest/:from/:to` - Obtener última tasa entre dos monedas
-- `POST /exchange-rates` - Crear tasa de cambio (requiere `exchange_rates.create`)
-- `PUT /exchange-rates/:id` - Actualizar tasa
-- `DELETE /exchange-rates/:id` - Eliminar tasa
+- `GET /exchange_rates` - Listar tasas de cambio (requiere `exchange_rates.read`)
+- `GET /exchange_rates/:id` - Ver tasa específica
+- `GET /exchange_rates/latest/:from/:to` - Obtener última tasa entre dos monedas
+- `POST /exchange_rates` - Crear tasa de cambio (requiere `exchange_rates.create`)
+- `PUT /exchange_rates/:id` - Actualizar tasa
+- `DELETE /exchange_rates/:id` - Eliminar tasa
 
 ### 🏷️ Categories (5 endpoints)
 - `GET /categories` - Listar categorías (requiere `categories.read`)

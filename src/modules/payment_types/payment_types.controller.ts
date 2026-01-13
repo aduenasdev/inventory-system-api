@@ -20,6 +20,12 @@ export async function createPaymentTypeHandler(req: Request, res: Response) {
 
 export async function getPaymentTypesHandler(req: Request, res: Response) {
   try {
+    // Si la ruta es /active, forzar active=true
+    if (req.path === '/active') {
+      const paymentTypes = await getAllPaymentTypes(true);
+      return res.status(200).json(paymentTypes);
+    }
+    
     const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
     const paymentTypes = await getAllPaymentTypes(active);
     res.status(200).json(paymentTypes);

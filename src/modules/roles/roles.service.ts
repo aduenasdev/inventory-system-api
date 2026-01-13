@@ -39,7 +39,10 @@ export async function updateRole(roleId: number, data: { name?: string; descript
   
   if (data.description !== undefined) updateData.description = data.description;
   await db.update(roles).set(updateData).where(eq(roles.id, roleId));
-  return { message: "Rol actualizado" };
+  
+  // Retornar el rol actualizado
+  const [updated] = await db.select().from(roles).where(eq(roles.id, roleId));
+  return updated;
 }
 
 export async function addPermissionToRole(roleId: number, permissionId: number) {

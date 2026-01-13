@@ -15,6 +15,9 @@ import { createCurrencySchema, updateCurrencySchema } from "./currencies.schemas
 
 const router = Router();
 
+// Public endpoint - Monedas activas (solo requiere login)
+router.get("/active", authMiddleware, getCurrenciesHandler);
+
 router.post("/", authMiddleware, hasPermission("currencies.create"), validate(createCurrencySchema), createCurrencyHandler);
 router.get("/", authMiddleware, hasPermission("currencies.read"), getCurrenciesHandler);
 router.get("/:currencyId", authMiddleware, hasPermission("currencies.read"), getCurrencyHandler);

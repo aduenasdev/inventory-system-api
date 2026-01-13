@@ -32,7 +32,7 @@ app.use("/users", userRoutes);
 app.use("/warehouses", warehouseRoutes);
 app.use("/units", unitRoutes);
 app.use("/currencies", currencyRoutes);
-app.use("/exchange-rates", exchangeRateRoutes);
+app.use("/exchange_rates", exchangeRateRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/products", productRoutes);
 app.use("/payment_types", paymentTypeRoutes);

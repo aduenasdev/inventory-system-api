@@ -6,6 +6,7 @@ import { inventory } from "../../db/schema/inventory";
 import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
+import { normalizeBusinessDate } from "../../utils/date";
 
 export class PurchasesService {
   // Generar número de factura auto-incremental
@@ -120,7 +121,7 @@ export class PurchasesService {
       invoiceNumber,
       supplierName: data.supplierName || null,
       supplierPhone: data.supplierPhone || null,
-      date: new Date(data.date),
+      date: normalizeBusinessDate(data.date),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",

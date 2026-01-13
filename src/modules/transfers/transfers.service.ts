@@ -7,6 +7,7 @@ import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { users } from "../../db/schema/users";
 import { eq, and, or, desc, sql, gte, lte } from "drizzle-orm";
+import { normalizeBusinessDate } from "../../utils/date";
 
 export class TransfersService {
   // Verificar stock disponible en origen
@@ -56,7 +57,7 @@ export class TransfersService {
 
     // Crear traslado
     const [transfer] = (await db.insert(transfers).values({
-      date: new Date(data.date),
+      date: normalizeBusinessDate(data.date),
       originWarehouseId: data.originWarehouseId,
       destinationWarehouseId: data.destinationWarehouseId,
       status: "PENDING",

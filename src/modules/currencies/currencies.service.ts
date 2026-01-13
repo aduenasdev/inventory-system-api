@@ -49,6 +49,11 @@ export async function updateCurrency(
     decimalPlaces?: number;
   }
 ) {
+  // CUP (id=1) es la moneda base y no puede ser editada
+  if (currencyId === 1) {
+    throw new Error("La moneda base CUP no puede ser editada");
+  }
+
   const updateData: any = {};
 
   if (data.name) {
@@ -78,6 +83,11 @@ export async function updateCurrency(
 }
 
 export async function disableCurrency(currencyId: number) {
+  // CUP (id=1) es la moneda base y no puede ser deshabilitada
+  if (currencyId === 1) {
+    throw new Error("La moneda base CUP no puede ser deshabilitada");
+  }
+
   await db.update(currencies).set({ isActive: false }).where(eq(currencies.id, currencyId));
   return { message: "Moneda deshabilitada" };
 }
@@ -88,6 +98,11 @@ export async function enableCurrency(currencyId: number) {
 }
 
 export async function deleteCurrency(currencyId: number) {
+  // CUP (id=1) es la moneda base y no puede ser eliminada
+  if (currencyId === 1) {
+    throw new Error("La moneda base CUP no puede ser eliminada");
+  }
+
   // Verificar si la moneda está asociada a productos
   const productsWithCurrency = await db
     .select()

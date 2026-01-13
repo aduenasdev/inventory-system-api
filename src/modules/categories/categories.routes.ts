@@ -15,6 +15,9 @@ import { createCategorySchema, updateCategorySchema } from "./categories.schemas
 
 const router = Router();
 
+// Public endpoint - Categorías activas (solo requiere login)
+router.get("/active", authMiddleware, getCategoriesHandler);
+
 router.post("/", authMiddleware, hasPermission("categories.create"), validate(createCategorySchema), createCategoryHandler);
 router.get("/", authMiddleware, hasPermission("categories.read"), getCategoriesHandler);
 router.get("/:categoryId", authMiddleware, hasPermission("categories.read"), getCategoryHandler);

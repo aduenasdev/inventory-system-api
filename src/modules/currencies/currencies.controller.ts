@@ -20,6 +20,12 @@ export async function createCurrencyHandler(req: Request, res: Response) {
 
 export async function getCurrenciesHandler(req: Request, res: Response) {
   try {
+    // Si la ruta es /active, forzar active=true
+    if (req.path === '/active') {
+      const currencies = await getAllCurrencies(true);
+      return res.status(200).json(currencies);
+    }
+    
     const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
     const currencies = await getAllCurrencies(active);
     res.status(200).json(currencies);

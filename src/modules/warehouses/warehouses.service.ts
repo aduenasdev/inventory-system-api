@@ -2,7 +2,7 @@ import { db } from "../../db/connection";
 import { warehouses } from "../../db/schema/warehouses";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { users } from "../../db/schema/users";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 export async function createWarehouse(data: { 
   name: string; 
@@ -27,6 +27,31 @@ export async function getAllWarehouses(activeFilter?: boolean) {
     return db.select().from(warehouses).where(eq(warehouses.active, activeFilter));
   }
   return db.select().from(warehouses);
+}
+
+export async function getUserActiveWarehouses(userId: number) {
+  // Obtener IDs de warehouses asignados al usuario
+  const userWarehouseIds = await db
+    .select({ warehouseId: userWarehouses.warehouseId })
+    .from(userWarehouses)
+    .where(eq(userWarehouses.userId, userId));
+  
+  if (userWarehouseIds.length === 0) {
+    return [];
+  }
+  
+  const warehouseIds = userWarehouseIds.map(uw => uw.warehouseId);
+  
+  // Obtener solo los warehouses activos
+  return db
+    .select()
+    .from(warehouses)
+    .where(
+      and(
+        inArray(warehouses.id, warehouseIds),
+        eq(warehouses.active, true)
+      )
+    );
 }
 
 export async function getWarehouseById(warehouseId: number) {
