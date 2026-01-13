@@ -1,6 +1,7 @@
 import { db } from "../../db/connection";
 import { units } from "../../db/schema/units";
-import { eq, and } from "drizzle-orm";
+import { products } from "../../db/schema/products";
+import { eq } from "drizzle-orm";
 
 export async function createUnit(data: {
   name: string;
@@ -21,7 +22,10 @@ export async function createUnit(data: {
   }
 
   const [insert] = await db.insert(units).values(data);
-  return { id: insert.insertId, ...data };
+  
+  // Retornar la unidad creada completa
+  const [created] = await db.select().from(units).where(eq(units.id, insert.insertId));
+  return created;
 }
 
 export async function getAllUnits(activeFilter?: boolean) {
@@ -76,6 +80,17 @@ export async function updateUnit(
 }
 
 export async function disableUnit(unitId: number) {
+  // Verificar si la unidad tiene productos asociados
+  const productsWithUnit = await db
+    .select()
+    .from(products)
+    .where(eq(products.unitId, unitId))
+    .limit(1);
+
+  if (productsWithUnit.length > 0) {
+    throw new Error("No se puede deshabilitar la unidad porque tiene productos asociados");
+  }
+
   await db.update(units).set({ isActive: false }).where(eq(units.id, unitId));
   return { message: "Unidad deshabilitada" };
 }

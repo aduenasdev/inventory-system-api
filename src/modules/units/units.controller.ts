@@ -19,7 +19,12 @@ export async function createUnitHandler(req: Request, res: Response) {
 
 export async function getUnitsHandler(req: Request, res: Response) {
   try {
-    const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+    // Si viene de /active, forzar filtro de activas
+    const isActiveEndpoint = req.path === '/active';
+    const active = isActiveEndpoint 
+      ? true 
+      : (req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined);
+    
     const units = await getAllUnits(active);
     res.status(200).json(units);
   } catch (error: any) {

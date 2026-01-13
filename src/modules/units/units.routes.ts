@@ -14,6 +14,9 @@ import { createUnitSchema, updateUnitSchema } from "./units.schemas";
 
 const router = Router();
 
+// Public endpoint - Unidades activas (solo requiere login)
+router.get("/active", authMiddleware, getUnitsHandler);
+
 router.post("/", authMiddleware, hasPermission("units.create"), validate(createUnitSchema), createUnitHandler);
 router.get("/", authMiddleware, hasPermission("units.read"), getUnitsHandler);
 router.get("/:unitId", authMiddleware, hasPermission("units.read"), getUnitHandler);

@@ -373,12 +373,12 @@ async function main() {
   console.log("Rol 'admin' creado.");
 
   // Crear usuario administrador
-  const hashedPassword = await bcrypt.hash("admin123", 10);
+  const hashedPassword = await bcrypt.hash("Admin123", 10);
   const [adminUserResult] = (await db.execute(
-    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@example.com"}, ${hashedPassword}, ${"Admin"})`
+    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin123"})`
   )) as any[];
   const adminUserId = adminUserResult.insertId;
-  console.log("Usuario 'admin@example.com' creado.");
+  console.log("Usuario 'admin@sasinversus.com' creado.");
 
   // Asociar usuario admin con rol admin
   await db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${adminUserId}, ${adminRoleId})`);
