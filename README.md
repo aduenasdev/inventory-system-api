@@ -1,3 +1,94 @@
+# Inventory System API — Módulos y despliegue
+
+Este README resume, módulo por módulo, lo que implementa la aplicación, más instrucciones de despliegue y las credenciales iniciales que crea el script de migración.
+
+**Nota**: la documentación completa con ejemplos CURL y detalles extendidos se mantiene en `context.md`.
+
+**Resumen rápido de módulos (qué hace cada uno)**
+
+- **Auth**: login, refresh, logout, obtener usuario (`/auth/*`). Gestiona JWT (access + refresh) y registra `last_login`.
+- **Users**: CRUD de usuarios, asignación de roles y almacenes, soft-disable/enable.
+- **Roles**: CRUD de roles y asignación de permisos.
+- **Permissions**: CRUD/listado de permisos; sementes iniciales creadas por la migración.
+- **Warehouses**: CRUD de almacenes y asignación de usuarios por almacén.
+- **Units (Unidades de medida)**: CRUD + endpoints `/units/active`, `/units/:id/disable` y `/units/:id/enable`. Valida unicidad de `name` y `shortName`. Antes de deshabilitar verifica dependencias en `products` (evita deshabilitar si hay productos asociados).
+- **Currencies**: CRUD y soft-disable/enable para monedas.
+- **Exchange Rates**: CRUD y endpoint para obtener última tasa entre dos monedas.
+- **Categories**: CRUD + `/categories/active`, `/categories/:id/disable` y `/categories/:id/enable`. Antes de deshabilitar/eliminar valida que no haya `products` asociados.
+- **Products**: CRUD, listados (filtrado por categoría y por `active`), manejo de imágenes (multipart) y relaciones con `units`, `categories` y `currencies`.
+- **Payment Types**: CRUD y soft-disable/enable.
+- **Inventory**: stock por almacén, movimientos (kardex) y restricciones por producto/almacén.
+- **Purchases / Sales / Transfers**: CRUD, estados (PENDING/APPROVED/CANCELLED) y registro de detalle; generan movimientos de inventario.
+- **Middlewares**: `auth.middleware` (valida JWT), `authorization.middleware` (permiso por ruta) y `validate` (Zod schema validation).
+- **DB layer**: `src/db/connection.ts`, `src/db/migrate.ts` (crea tablas y semillas). ORM: Drizzle.
+- **Utils**: helpers JWT, manejo de imágenes y utilidades de fecha.
+
+Comportamientos importantes aplicados en código
+
+- Validaciones con `zod` en cada módulo (`create` / `update`).
+- Mensajes de error uniformes: controladores retornan `{ message: string }` y códigos 400/404/500 según el caso.
+- Reglas de negocio: antes de deshabilitar/eliminar recursos relacionados con productos (categorías, unidades) se comprueba existencia de productos asociados y se bloquea la operación.
+
+Despliegue y configuración
+
+1) Instalar dependencias:
+
+```bash
+npm install
+```
+
+2) Variables de entorno mínimas (archivo `.env` en la raíz):
+
+```
+PORT=3000
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=tu_password
+DB_NAME=inventory
+JWT_SECRET=tu_secreto_super_seguro
+JWT_REFRESH_SECRET=otro_secreto_diferente
+```
+
+3) Crear base de datos y ejecutar migraciones/seeds (el script `src/db/migrate.ts` crea todas las tablas y semillas iniciales):
+
+```bash
+# Ejecutar migraciones y seeds
+npm run migrate
+```
+
+4) Iniciar servidor:
+
+```bash
+# Desarrollo
+npm run dev
+
+# Producción
+npm run build
+npm start
+```
+
+Credenciales iniciales y comportamiento del seed
+
+- El script de migración crea un rol `admin` y un usuario administrador con las siguientes credenciales iniciales:
+
+- Email: `admin@sasinversus.com`
+- Password: `Admin123`
+
+  (El password se guarda hasheado por `bcrypt` en la BD durante la ejecución de `npm run migrate`.)
+
+- Además el script popula la tabla `permissions` con los permisos básicos por módulo y asigna todos los permisos al rol `admin`.
+
+Notas operativas y recomendaciones
+
+- No es necesario ejecutar migraciones por cambios de lógica a nivel aplicación (por ejemplo: verificación de dependencias antes de deshabilitar unidades/categorías).
+- Para producción se recomienda:
+  - Usar un usuario de BD con permisos limitados y backups automatizados.
+  - Mantener `JWT_SECRET` y `JWT_REFRESH_SECRET` fuera del repositorio.
+  - Usar almacenamiento externo/CDN para imágenes y no confiar en `uploads/` local.
+  - Servir la API detrás de un proxy/NLB con HTTPS y compresión.
+
+¿Quieres que añada ejemplos CURL por endpoint o una sección de pruebas automatizadas en este README?
 # 📦 Inventory System API
 
 ## 📚 Navegación de Documentación
