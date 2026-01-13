@@ -38,23 +38,43 @@ export async function createProduct(data: {
  * Obtiene productos paginados y filtrados por estado activo.
  * @param params { active?: boolean, page?: number, pageSize?: number }
  */
-export async function getAllProducts(params: { active?: boolean, page?: number, pageSize?: number }) {
-  const { active, page = 1, pageSize = 20 } = params;
+
+import { and, like } from "drizzle-orm";
+
+export async function getAllProducts(params: {
+  active?: boolean,
+  page?: number,
+  pageSize?: number,
+  name?: string,
+  categoryId?: number
+}) {
+  const { active, page = 1, pageSize = 20, name, categoryId } = params;
   const log = logger;
   try {
-    const whereClause = active !== undefined ? eq(products.isActive, active) : undefined;
+    const whereClauses = [];
+    if (active !== undefined) {
+      whereClauses.push(eq(products.isActive, active));
+    }
+    if (name) {
+      // Búsqueda LIKE (contiene, case-insensitive)
+      whereClauses.push(like(products.name, `%${name}%`));
+    }
+    if (categoryId !== undefined) {
+      whereClauses.push(eq(products.categoryId, categoryId));
+    }
+    const where = whereClauses.length > 0 ? and(...whereClauses) : undefined;
     const offset = (page - 1) * pageSize;
     // Total
     const totalQuery = db.select().from(products);
-    const total = whereClause
-      ? (await totalQuery.where(whereClause)).length
+    const total = where
+      ? (await totalQuery.where(where)).length
       : (await totalQuery).length;
     // Items
     const itemsQuery = db.select().from(products);
-    const items = whereClause
-      ? await itemsQuery.where(whereClause).limit(pageSize).offset(offset)
+    const items = where
+      ? await itemsQuery.where(where).limit(pageSize).offset(offset)
       : await itemsQuery.limit(pageSize).offset(offset);
-    log.info({ total, page, pageSize, active }, "Consulta paginada de productos ejecutada");
+    log.info({ total, page, pageSize, active, name, categoryId }, "Consulta paginada de productos ejecutada");
     return {
       items,
       total,

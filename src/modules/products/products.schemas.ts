@@ -15,6 +15,8 @@ export const createProductSchema = z.object({
 
 export const getProductsQuerySchema = z.object({
   query: z.object({
+    name: z.string().optional(), // Búsqueda por nombre (LIKE)
+    categoryId: z.string().regex(/^\d+$/, { message: "categoryId debe ser un número positivo" }).optional(),
     active: z.string().optional(),
     page: z.string().regex(/^\d+$/, { message: "page debe ser un número positivo" }).optional(),
     pageSize: z.string().regex(/^\d+$/, { message: "pageSize debe ser un número positivo" }).optional(),

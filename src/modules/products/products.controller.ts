@@ -32,9 +32,11 @@ export async function getProductsHandler(req: Request, res: Response) {
     const active = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
     const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
     const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : 20;
-    log.info({ active, page, pageSize }, "Consulta de productos paginada");
-    const result = await getAllProducts({ active, page, pageSize });
-    log.info({ total: result.total, page, pageSize }, "Productos obtenidos");
+    const name = req.query.name ? String(req.query.name) : undefined;
+    const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string, 10) : undefined;
+    log.info({ active, page, pageSize, name, categoryId }, "Consulta de productos paginada y filtrada");
+    const result = await getAllProducts({ active, page, pageSize, name, categoryId });
+    log.info({ total: result.total, page, pageSize, name, categoryId }, "Productos obtenidos");
     res.status(200).json(result);
   } catch (error: any) {
     log.warn({ error, query: req.query }, "Error al obtener productos");
