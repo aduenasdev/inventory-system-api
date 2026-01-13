@@ -89,6 +89,104 @@ Notas operativas y recomendaciones
   - Servir la API detrás de un proxy/NLB con HTTPS y compresión.
 
 ¿Quieres que añada ejemplos CURL por endpoint o una sección de pruebas automatizadas en este README?
+
+---
+
+Ejemplos: Paginación cursor-based en `GET /products`
+
+- Primera página (sin cursor):
+
+```bash
+curl -H "Authorization: Bearer <token>" "http://localhost:3000/products?limit=20"
+```
+
+- Siguiente página (usar `nextCursor` devuelto por la respuesta):
+
+```bash
+curl -H "Authorization: Bearer <token>" "http://localhost:3000/products?limit=20&cursor=<nextCursor>"
+```
+
+- Solicitar solo campos específicos (ej: `id,name, sale_price`):
+
+```bash
+curl -H "Authorization: Bearer <token>" "http://localhost:3000/products?limit=20&fields=id,name,sale_price"
+```
+
+Respuesta de ejemplo (primera página):
+
+```json
+{
+  "items": [
+    { "id": 123, "name": "Producto A", "sale_price": "10.00", "imageUrl": "..." },
+    { "id": 122, "name": "Producto B", "sale_price": "5.00", "imageUrl": "..." }
+  ],
+  "paging": { "hasMore": true, "nextCursor": "eyJjcmVhdGVkQXQiOiIyMDI1LTAxLTAxVDAwOjAwOjAwWiIsImlkIjoxMjJ9" }
+}
+```
+
+Nota: `fields` es opcional; si se omite, la API devuelve todos los campos del producto. El `cursor` es un token base64 que contiene `{ createdAt, id }` y se usa para paginar de forma estable.
+
+---
+
+Ejemplos: Crear y actualizar producto (respuesta completa)
+
+- Crear producto (POST /products):
+
+```bash
+curl -X POST http://localhost:3000/products \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Producto X","code":"PX-001","description":"Desc","costPrice":5.5,"salePrice":10.0,"currencyId":2,"unitId":1,"categoryId":3}'
+```
+
+Respuesta 201 (objeto producto completo):
+
+```json
+{
+  "id": 201,
+  "name": "Producto X",
+  "code": "PX-001",
+  "description": "Desc",
+  "cost_price": "5.50",
+  "sale_price": "10.00",
+  "currency_id": 2,
+  "unit_id": 1,
+  "category_id": 3,
+  "image_url": null,
+  "is_active": 1,
+  "created_at": "2026-01-13T12:00:00.000Z",
+  "updated_at": "2026-01-13T12:00:00.000Z"
+}
+```
+
+- Actualizar producto (PUT /products/:productId):
+
+```bash
+curl -X PUT http://localhost:3000/products/201 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"salePrice":12.5, "description":"Nueva desc"}'
+```
+
+Respuesta 200 (objeto producto actualizado completo):
+
+```json
+{
+  "id": 201,
+  "name": "Producto X",
+  "code": "PX-001",
+  "description": "Nueva desc",
+  "cost_price": "5.50",
+  "sale_price": "12.50",
+  "currency_id": 2,
+  "unit_id": 1,
+  "category_id": 3,
+  "image_url": null,
+  "is_active": 1,
+  "created_at": "2026-01-13T12:00:00.000Z",
+  "updated_at": "2026-01-13T12:05:00.000Z"
+}
+```
 # 📦 Inventory System API
 
 ## 📚 Navegación de Documentación

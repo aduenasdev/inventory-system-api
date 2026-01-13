@@ -2,6 +2,7 @@ import { db } from "../../db/connection";
 import { products } from "../../db/schema/products";
 import { eq } from "drizzle-orm";
 import { processAndSaveImage, deleteProductImages } from "../../utils/imageStorage";
+import logger from "../../utils/logger";
 
 export async function createProduct(data: {
   name: string;
@@ -33,12 +34,40 @@ export async function createProduct(data: {
   return { id: insert.insertId, ...data };
 }
 
-export async function getAllProducts(activeFilter?: boolean) {
-  if (activeFilter !== undefined) {
-    return db.select().from(products).where(eq(products.isActive, activeFilter));
+/**
+ * Obtiene productos paginados y filtrados por estado activo.
+ * @param params { active?: boolean, page?: number, pageSize?: number }
+ */
+export async function getAllProducts(params: { active?: boolean, page?: number, pageSize?: number }) {
+  const { active, page = 1, pageSize = 20 } = params;
+  const log = logger;
+  try {
+    const whereClause = active !== undefined ? eq(products.isActive, active) : undefined;
+    const offset = (page - 1) * pageSize;
+    // Total
+    const totalQuery = db.select().from(products);
+    const total = whereClause
+      ? (await totalQuery.where(whereClause)).length
+      : (await totalQuery).length;
+    // Items
+    const itemsQuery = db.select().from(products);
+    const items = whereClause
+      ? await itemsQuery.where(whereClause).limit(pageSize).offset(offset)
+      : await itemsQuery.limit(pageSize).offset(offset);
+    log.info({ total, page, pageSize, active }, "Consulta paginada de productos ejecutada");
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  } catch (error) {
+    log.warn({ error, params }, "Error en consulta paginada de productos");
+    throw error;
   }
-  return db.select().from(products);
 }
+
 
 export async function getProductById(productId: number) {
   const rows = await db.select().from(products).where(eq(products.id, productId));

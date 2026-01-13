@@ -11,7 +11,7 @@ import {
   deleteUserHandler,
 } from "./users.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
-import { isRole, hasPermission } from "../../middlewares/authorization.middleware";
+import { hasPermission } from "../../middlewares/authorization.middleware";
 import { validate } from "../../middlewares/validate";
 import { assignRoleToUserSchema, createUserSchema, updateUserSchema } from "./users.schemas";
 
@@ -22,7 +22,7 @@ router.post("/", authMiddleware, hasPermission("users.create"), validate(createU
 router.get("/", authMiddleware, hasPermission("users.read"), getUsersHandler);
 router.get("/:userId", authMiddleware, hasPermission("users.read"), getUserHandler);
 router.put("/:userId", authMiddleware, hasPermission("users.update"), validate(updateUserSchema), updateUserHandler);
-router.put("/:userId/disable", authMiddleware, hasPermission("users.delete"), disableUserHandler);
+router.put("/:userId/disable", authMiddleware, hasPermission("users.update"), disableUserHandler);
 router.put("/:userId/enable", authMiddleware, hasPermission("users.update"), enableUserHandler);
 router.delete("/:userId", authMiddleware, hasPermission("users.delete"), deleteUserHandler);
 
@@ -30,7 +30,7 @@ router.delete("/:userId", authMiddleware, hasPermission("users.delete"), deleteU
 router.post(
   "/:userId/roles",
   authMiddleware,
-  isRole("admin"),
+  hasPermission("users.update"),
   validate(assignRoleToUserSchema),
   assignRoleToUserHandler
 );
@@ -38,7 +38,7 @@ router.post(
 router.delete(
   "/:userId/roles/:roleId",
   authMiddleware,
-  isRole("admin"),
+  hasPermission("users.delete"),
   removeRoleFromUserHandler
 );
 

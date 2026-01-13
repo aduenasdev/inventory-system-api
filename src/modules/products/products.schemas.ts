@@ -13,6 +13,14 @@ export const createProductSchema = z.object({
   }),
 });
 
+export const getProductsQuerySchema = z.object({
+  query: z.object({
+    active: z.string().optional(),
+    page: z.string().regex(/^\d+$/, { message: "page debe ser un número positivo" }).optional(),
+    pageSize: z.string().regex(/^\d+$/, { message: "pageSize debe ser un número positivo" }).optional(),
+  }),
+});
+
 export const updateProductSchema = z.object({
   body: z.object({
     name: z.string().min(1, { message: "El nombre es requerido" }).optional(),

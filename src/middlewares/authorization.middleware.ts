@@ -1,30 +1,13 @@
 import { Request, Response, NextFunction } from "express";
+import logger from "../utils/logger";
 
-export const isRole =
-  (...roles: string[]) =>
-  (req: Request, res: Response, next: NextFunction) => {
+
+export const hasPermission = (permission: string) => (req: Request, res: Response, next: NextFunction) => {
     const user = res.locals.user;
-
-    if (!user || !user.roles) {
-      return res.status(403).json({ message: "Forbidden: No roles found" });
-    }
-
-    const hasRole = roles.some((role) => user.roles.includes(role));
-
-    if (!hasRole) {
-      return res
-        .status(403)
-        .json({ message: `Forbidden: Requires one of roles: ${roles.join(", ")}` });
-    }
-
-    next();
-  };
-
-export const hasPermission =
-  (permission: string) => (req: Request, res: Response, next: NextFunction) => {
-    const user = res.locals.user;
+    const log = req.logger || logger;
 
     if (!user || !user.permissions) {
+      log.warn({ user }, "Acceso denegado: No permisos encontrados");
       return res
         .status(403)
         .json({ message: "Forbidden: No permissions found" });
@@ -33,10 +16,12 @@ export const hasPermission =
     const hasPerm = user.permissions.includes(permission);
 
     if (!hasPerm) {
+      log.warn({ user, requiredPermission: permission }, `Acceso denegado: Requiere permiso: ${permission}`);
       return res
         .status(403)
         .json({ message: `Forbidden: Requires permission: ${permission}` });
     }
 
+    log.info({ user, requiredPermission: permission }, "Acceso permitido por permiso");
     next();
   };

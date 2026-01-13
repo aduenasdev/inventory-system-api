@@ -7,6 +7,8 @@ import { userRoles } from "../db/schema/user_roles";
 import { permissions } from "../db/schema/permissions";
 import { rolePermissions } from "../db/schema/role_permissions";
 import { eq, inArray } from "drizzle-orm";
+import { loggerPerUserMiddleware } from "../utils/loggerPerUser";
+import logger from "../utils/logger";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -17,7 +19,11 @@ export async function authMiddleware(
 ) {
   const authHeader = req.headers.authorization;
 
+  // Log intento de autenticación
+  (req.logger || logger).info({ authHeader }, "Intento de autenticación");
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    (req.logger || logger).warn("No token provided");
     return res.status(401).json({ message: "Unauthorized: No token provided" });
   }
 
@@ -39,8 +45,13 @@ export async function authMiddleware(
       .where(eq(users.id, decoded.userId));
 
     if (!user) {
+      (req.logger || logger).warn({ userId: decoded.userId }, "User not found");
       return res.status(401).json({ message: "Unauthorized: User not found" });
     }
+
+    // Inicializar logger por usuario
+    loggerPerUserMiddleware(req, res, () => {});
+    req.logger?.info({ userId: user.id, email: user.email }, "Usuario autenticado, logger por usuario inicializado");
 
     // 2. Get user roles
     const userRolesResult = await db
@@ -51,6 +62,7 @@ export async function authMiddleware(
 
     if (userRolesResult.length === 0) {
       res.locals.user = { ...user, roles: [], permissions: [] };
+      req.logger?.info({ userId: user.id }, "Usuario sin roles asignados");
       return next();
     }
 
@@ -73,8 +85,10 @@ export async function authMiddleware(
       permissions: permissionNames,
     };
 
+    req.logger?.info({ userId: user.id, roles: roleNames, permissions: permissionNames }, "Usuario autenticado con roles y permisos");
     next();
   } catch (error) {
+    (req.logger || logger).warn({ error }, "Token inválido o error en autenticación");
     return res.status(401).json({ message: "Unauthorized: Invalid token" });
   }
 }

@@ -13,13 +13,13 @@ import {
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
 import { validate } from "../../middlewares/validate";
-import { createProductSchema, updateProductSchema } from "./products.schemas";
+import { createProductSchema, updateProductSchema, getProductsQuerySchema } from "./products.schemas";
 import { upload } from "../../utils/imageStorage";
 
 const router = Router();
 
 router.post("/", authMiddleware, hasPermission("products.create"), validate(createProductSchema), createProductHandler);
-router.get("/", authMiddleware, hasPermission("products.read"), getProductsHandler);
+router.get("/", authMiddleware, hasPermission("products.read"), validate(getProductsQuerySchema), getProductsHandler);
 router.get("/category/:categoryId", authMiddleware, hasPermission("products.read"), getProductsByCategoryHandler);
 router.get("/:productId", authMiddleware, hasPermission("products.read"), getProductHandler);
 router.put("/:productId", authMiddleware, hasPermission("products.update"), validate(updateProductSchema), updateProductHandler);
