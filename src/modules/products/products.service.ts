@@ -20,7 +20,6 @@ export async function createProduct(data: {
   unitId: number;
   categoryId?: number;
   createdBy: number;
-  imageBase64?: string;
 }) {
   // Validar que currency existe
   const [currency] = await db.select().from(currencies).where(eq(currencies.id, data.currencyId));
@@ -54,14 +53,13 @@ export async function createProduct(data: {
     throw new ConflictError(`Ya existe un producto con el código "${data.code}"`);
   }
 
-  const { imageBase64, ...rest } = data;
   const [insert] = await db.insert(products).values({
-    ...rest,
-    categoryId: rest.categoryId ?? 0,
-    costPrice: rest.costPrice !== undefined ? rest.costPrice.toString() : undefined,
-    salePrice: rest.salePrice !== undefined ? rest.salePrice.toString() : undefined,
+    ...data,
+    categoryId: data.categoryId ?? 0,
+    costPrice: data.costPrice !== undefined ? data.costPrice.toString() : undefined,
+    salePrice: data.salePrice !== undefined ? data.salePrice.toString() : undefined,
   });
-  return { id: insert.insertId, ...rest };
+  return { id: insert.insertId, ...data };
 }
 
 /**
@@ -157,7 +155,6 @@ export async function updateProduct(
     currencyId?: number;
     unitId?: number;
     categoryId?: number;
-    imageBase64?: string;
   }
 ) {
   const updateData: any = {};

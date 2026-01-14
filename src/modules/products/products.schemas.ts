@@ -10,7 +10,6 @@ export const createProductSchema = z.object({
     currencyId: z.number({ message: "El ID de moneda es requerido" }),
     unitId: z.number({ message: "El ID de unidad es requerido" }),
     categoryId: z.number().optional(),
-    imageBase64: z.string().optional(),
   }),
 });
 
@@ -33,7 +32,6 @@ export const updateProductSchema = z.object({
     currencyId: z.number({ message: "El ID de moneda es requerido" }).optional(),
     unitId: z.number({ message: "El ID de unidad es requerido" }).optional(),
     categoryId: z.number().optional(),
-    imageBase64: z.string().optional(),
   }),
   params: z.object({
     productId: z.string(),

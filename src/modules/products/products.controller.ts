@@ -40,15 +40,8 @@ export const createProductHandler = asyncHandler(async (req: Request, res: Respo
   const log = req.logger || logger;
   log.info({ body: req.body }, "Intento de crear producto");
   
-  const { imageBase64, ...productData } = req.body;
-  const dataWithCreatedBy = { ...productData, createdBy: req.user!.id };
-  
+  const dataWithCreatedBy = { ...req.body, createdBy: req.user!.id };
   const product = await createProduct(dataWithCreatedBy);
-  
-  if (imageBase64) {
-    const buffer = parseBase64Image(imageBase64);
-    await uploadProductImage(product.id, buffer);
-  }
   
   log.info({ product }, "Producto creado exitosamente");
   res.status(201).json(product);
@@ -98,15 +91,9 @@ export const getProductsByCategoryHandler = asyncHandler(async (req: Request, re
 export const updateProductHandler = asyncHandler(async (req: Request, res: Response) => {
   const log = req.logger || logger;
   const { productId } = req.params;
-  const { imageBase64, ...updateData } = req.body;
   
   log.info({ productId, body: req.body }, "Intento de actualizar producto");
-  const result = await updateProduct(Number(productId), updateData);
-  
-  if (imageBase64) {
-    const buffer = parseBase64Image(imageBase64);
-    await uploadProductImage(Number(productId), buffer);
-  }
+  const result = await updateProduct(Number(productId), req.body);
   
   log.info({ productId }, "Producto actualizado exitosamente");
   res.status(200).json(result);

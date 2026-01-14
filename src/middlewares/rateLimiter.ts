@@ -6,10 +6,10 @@ import { Request, Response } from "express";
  * Previene ataques de fuerza bruta en login/register
  */
 export const authLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutos
+  windowMs: 1 * 60 * 1000, // 1 minuto
   max: 5, // 5 intentos por ventana
   message: {
-    message: "Demasiados intentos de autenticación. Intente de nuevo en 5 minutos.",
+    message: "Demasiados intentos de autenticación. Intente de nuevo en 1 minuto.",
   },
   standardHeaders: true, // Retorna info de rate limit en headers `RateLimit-*`
   legacyHeaders: false, // Deshabilita headers `X-RateLimit-*`
@@ -24,7 +24,7 @@ export const authLimiter = rateLimit({
       "Rate limit excedido en autenticación"
     );
     res.status(429).json({
-      message: "Demasiados intentos de autenticación. Intente de nuevo en 5 minutos.",
+      message: "Demasiados intentos de autenticación. Intente de nuevo en 1 minuto.",
     });
   },
 });
