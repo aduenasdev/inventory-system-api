@@ -2,6 +2,7 @@ import { db } from "../../db/connection";
 import { exchangeRates } from "../../db/schema/exchange_rates";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { normalizeBusinessDate, isWithinLastDays } from "../../utils/date";
+import { ValidationError, ConflictError, NotFoundError, ForbiddenError } from "../../utils/errors";
 
 export async function createExchangeRate(data: {
   toCurrencyId: number;
@@ -15,12 +16,12 @@ export async function createExchangeRate(data: {
 
   // Validar que toCurrencyId no sea CUP
   if (data.toCurrencyId === 1) {
-    throw new Error("No se puede crear tasa de CUP a CUP. Use otra moneda como destino");
+    throw new ValidationError("No se puede crear tasa de CUP a CUP. Use otra moneda como destino");
   }
 
   // Validar que la fecha esté dentro de los últimos 4 días
   if (!isWithinLastDays(normalizedDate, 4)) {
-    throw new Error("No se pueden crear tasas de cambio de más de 4 días atrás");
+    throw new ValidationError("No se pueden crear tasas de cambio de más de 4 días atrás");
   }
 
   // Verificar si ya existe una tasa para esa moneda en esa fecha
@@ -36,7 +37,7 @@ export async function createExchangeRate(data: {
     );
 
   if (existing.length > 0) {
-    throw new Error(`Ya existe una tasa de cambio de CUP a esta moneda en la fecha ${normalizedDate}`);
+    throw new ConflictError(`Ya existe una tasa de cambio de CUP a esta moneda en la fecha ${normalizedDate}`);
   }
 
   const [insert] = await db.insert(exchangeRates).values({
@@ -133,12 +134,12 @@ export async function updateExchangeRate(
   const [existingRate] = await db.select().from(exchangeRates).where(eq(exchangeRates.id, exchangeRateId));
   
   if (!existingRate) {
-    throw new Error("Tasa de cambio no encontrada");
+    throw new NotFoundError("Tasa de cambio no encontrada");
   }
 
   // Validar que la tasa no sea de más de 4 días atrás
   if (!isWithinLastDays(existingRate.date, 4)) {
-    throw new Error("No se pueden editar tasas de cambio de más de 4 días atrás");
+    throw new ForbiddenError("No se pueden editar tasas de cambio de más de 4 días atrás");
   }
 
   const updateData: any = {};
@@ -148,7 +149,7 @@ export async function updateExchangeRate(
     // Normalizar y validar la nueva fecha
     const normalizedNewDate = normalizeBusinessDate(data.date);
     if (!isWithinLastDays(normalizedNewDate, 4)) {
-      throw new Error("No se puede mover la tasa a una fecha de más de 4 días atrás");
+      throw new ValidationError("No se puede mover la tasa a una fecha de más de 4 días atrás");
     }
     updateData.date = normalizedNewDate;
   }
@@ -175,12 +176,12 @@ export async function createBatchExchangeRates(data: {
   // Validar que ninguna tasa sea para CUP
   const hasCUP = data.rates.some(r => r.toCurrencyId === 1);
   if (hasCUP) {
-    throw new Error("No se puede crear tasa de CUP a CUP. Elimine CUP de la lista");
+    throw new ValidationError("No se puede crear tasa de CUP a CUP. Elimine CUP de la lista");
   }
 
   // Validar que la fecha esté dentro de los últimos 4 días
   if (!isWithinLastDays(normalizedDate, 4)) {
-    throw new Error("No se pueden crear o editar tasas de cambio de más de 4 días atrás");
+    throw new ValidationError("No se pueden crear o editar tasas de cambio de más de 4 días atrás");
   }
 
   for (const rateData of data.rates) {
@@ -199,7 +200,7 @@ export async function createBatchExchangeRates(data: {
     if (existing.length > 0) {
       // Validar que la tasa existente esté dentro de los últimos 4 días
       if (!isWithinLastDays(existing[0].date, 4)) {
-        throw new Error(`La tasa para la moneda ${rateData.toCurrencyId} tiene más de 4 días y no puede ser modificada`);
+        throw new ForbiddenError(`La tasa para la moneda ${rateData.toCurrencyId} tiene más de 4 días y no puede ser modificada`);
       }
       
       // Actualizar tasa existente

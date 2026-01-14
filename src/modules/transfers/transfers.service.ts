@@ -8,6 +8,7 @@ import { warehouses } from "../../db/schema/warehouses";
 import { users } from "../../db/schema/users";
 import { eq, and, or, desc, sql, gte, lte } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
+import { NotFoundError, ValidationError } from "../../utils/errors";
 
 export class TransfersService {
   // Verificar stock disponible en origen
@@ -28,7 +29,7 @@ export class TransfersService {
         .select()
         .from(products)
         .where(eq(products.id, productId));
-      throw new Error(
+      throw new ValidationError(
         `Stock insuficiente para el producto "${product.name}". Disponible: ${currentQty}, Solicitado: ${quantity}`
       );
     }
@@ -47,7 +48,7 @@ export class TransfersService {
     userId: number;
   }) {
     if (data.originWarehouseId === data.destinationWarehouseId) {
-      throw new Error("El almacén de origen y destino no pueden ser el mismo");
+      throw new ValidationError("El almacén de origen y destino no pueden ser el mismo");
     }
 
     // Validar stock para todos los productos
@@ -105,7 +106,7 @@ export class TransfersService {
       .where(eq(transfers.id, id));
 
     if (!transfer) {
-      throw new Error("Traslado no encontrado");
+      throw new NotFoundError("Traslado no encontrado");
     }
 
     const details = await db
@@ -141,7 +142,7 @@ export class TransfersService {
     const transfer = await this.getTransferById(id);
 
     if (transfer.status !== "PENDING") {
-      throw new Error("Solo se pueden aceptar traslados en estado PENDING");
+      throw new ValidationError("Solo se pueden aceptar traslados en estado PENDING");
     }
 
     // Revalidar stock al momento de aceptar
@@ -210,7 +211,7 @@ export class TransfersService {
     const transfer = await this.getTransferById(id);
 
     if (transfer.status !== "PENDING") {
-      throw new Error("Solo se pueden rechazar traslados en estado PENDING");
+      throw new ValidationError("Solo se pueden rechazar traslados en estado PENDING");
     }
 
     await db
@@ -339,3 +340,4 @@ export class TransfersService {
     }
   }
 }
+

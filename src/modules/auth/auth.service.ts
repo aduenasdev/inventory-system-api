@@ -9,6 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { generateTokens } from "../../utils/jwt";
+import { ConflictError, UnauthorizedError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { RegisterUserInput, LoginUserInput, ChangePasswordInput } from "./auth.schemas";
 
 export async function registerUser(data: RegisterUserInput) {
@@ -17,7 +18,7 @@ export async function registerUser(data: RegisterUserInput) {
   const existingUser = await db.select().from(users).where(eq(users.email, email));
 
   if (existingUser.length > 0) {
-    throw new Error("Ya existe un usuario con este email");
+    throw new ConflictError("Ya existe un usuario con este email");
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -83,18 +84,18 @@ export async function loginUser(data: LoginUserInput) {
     const [user] = result;
 
     if (!user) {
-      throw new Error("Email o contraseña inválidos");
+      throw new UnauthorizedError("Email o contraseña inválidos");
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      throw new Error("Email o contraseña inválidos");
+      throw new UnauthorizedError("Email o contraseña inválidos");
     }
 
     // Verificar si el usuario está habilitado
     if (!user.enabled) {
-      throw new Error("Usuario deshabilitado. Contacte al administrador");
+      throw new ForbiddenError("Usuario deshabilitado. Contacte al administrador");
     }
 
     // Update last login timestamp
@@ -156,7 +157,7 @@ export async function loginUser(data: LoginUserInput) {
 
 export async function refreshTokenService(token: string) {
   if (!token) {
-    throw new Error("Refresh token no proporcionado");
+    throw new UnauthorizedError("Refresh token no proporcionado");
   }
 
   const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET!;
@@ -170,7 +171,7 @@ export async function refreshTokenService(token: string) {
       .where(eq(refreshTokens.token, token));
 
     if (!existingToken) {
-      throw new Error("Refresh token inválido");
+      throw new UnauthorizedError("Refresh token inválido");
     }
 
     // Revoke the old refresh token
@@ -189,7 +190,7 @@ export async function refreshTokenService(token: string) {
 
     return { accessToken, refreshToken };
   } catch (error) {
-    throw new Error("Refresh token inválido o expirado");
+    throw new UnauthorizedError("Refresh token inválido o expirado");
   }
 }
 
@@ -200,14 +201,14 @@ export async function changePassword(userId: number, data: ChangePasswordInput) 
   const [user] = await db.select().from(users).where(eq(users.id, userId));
 
   if (!user) {
-    throw new Error("Usuario no encontrado");
+    throw new NotFoundError("Usuario no encontrado");
   }
 
   // Verify current password
   const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
 
   if (!isPasswordValid) {
-    throw new Error("La contraseña actual es incorrecta");
+    throw new UnauthorizedError("La contraseña actual es incorrecta");
   }
 
   // Hash new password

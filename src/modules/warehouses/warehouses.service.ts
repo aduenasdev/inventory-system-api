@@ -3,6 +3,7 @@ import { warehouses } from "../../db/schema/warehouses";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { users } from "../../db/schema/users";
 import { eq, and, inArray } from "drizzle-orm";
+import { ConflictError, ValidationError } from "../../utils/errors";
 
 export async function createWarehouse(data: { 
   name: string; 
@@ -15,7 +16,7 @@ export async function createWarehouse(data: {
   // Verificar si ya existe un almacén con ese nombre
   const existing = await db.select().from(warehouses).where(eq(warehouses.name, data.name));
   if (existing.length > 0) {
-    throw new Error(`Ya existe un almacén con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe un almacén con el nombre "${data.name}"`);
   }
   
   const [insert] = await db.insert(warehouses).values(data);
@@ -77,7 +78,7 @@ export async function updateWarehouse(
     // Verificar si el nombre ya está en uso por otro almacén
     const existing = await db.select().from(warehouses).where(eq(warehouses.name, data.name));
     if (existing.length > 0 && existing[0].id !== warehouseId) {
-      throw new Error(`El nombre "${data.name}" ya está en uso por otro almacén`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otro almacén`);
     }
     updateData.name = data.name;
   }
@@ -104,7 +105,7 @@ export async function deleteWarehouse(warehouseId: number) {
     .limit(1);
   
   if (usersInWarehouse.length > 0) {
-    throw new Error("No se puede eliminar el almacén porque tiene usuarios asignados");
+    throw new ValidationError("No se puede eliminar el almacén porque tiene usuarios asignados");
   }
   
   await db.delete(warehouses).where(eq(warehouses.id, warehouseId));
@@ -119,7 +120,7 @@ export async function assignUserToWarehouse(warehouseId: number, userId: number)
     .where(and(eq(userWarehouses.warehouseId, warehouseId), eq(userWarehouses.userId, userId)));
   
   if (existing.length > 0) {
-    throw new Error("El usuario ya está asignado a ese almacén");
+    throw new ConflictError("El usuario ya está asignado a ese almacén");
   }
   
   await db.insert(userWarehouses).values({ warehouseId, userId });

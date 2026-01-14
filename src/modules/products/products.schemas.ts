@@ -9,7 +9,8 @@ export const createProductSchema = z.object({
     salePrice: z.number().nonnegative({ message: "El precio de venta debe ser no negativo" }).optional(),
     currencyId: z.number({ message: "El ID de moneda es requerido" }),
     unitId: z.number({ message: "El ID de unidad es requerido" }),
-    categoryId: z.number({ message: "El ID de categoría es requerido" }),
+    categoryId: z.number().optional(),
+    imageBase64: z.string().optional(),
   }),
 });
 
@@ -17,7 +18,6 @@ export const getProductsQuerySchema = z.object({
   query: z.object({
     name: z.string().optional(), // Búsqueda por nombre (LIKE)
     categoryId: z.string().regex(/^\d+$/, { message: "categoryId debe ser un número positivo" }).optional(),
-    active: z.string().optional(),
     page: z.string().regex(/^\d+$/, { message: "page debe ser un número positivo" }).optional(),
     pageSize: z.string().regex(/^\d+$/, { message: "pageSize debe ser un número positivo" }).optional(),
   }),
@@ -32,7 +32,8 @@ export const updateProductSchema = z.object({
     salePrice: z.number().nonnegative({ message: "El precio de venta debe ser no negativo" }).optional(),
     currencyId: z.number({ message: "El ID de moneda es requerido" }).optional(),
     unitId: z.number({ message: "El ID de unidad es requerido" }).optional(),
-    categoryId: z.number({ message: "El ID de categoría es requerido" }).optional(),
+    categoryId: z.number().optional(),
+    imageBase64: z.string().optional(),
   }),
   params: z.object({
     productId: z.string(),

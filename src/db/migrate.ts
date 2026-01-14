@@ -182,13 +182,13 @@ async function main() {
       sale_price DECIMAL(18, 2),
       currency_id INT NOT NULL,
       unit_id INT NOT NULL,
-      category_id INT NOT NULL,  
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      category_id INT NOT NULL DEFAULT 0,
+      created_by INT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (currency_id) REFERENCES currencies(id),
       FOREIGN KEY (unit_id) REFERENCES units(id),
-      FOREIGN KEY (category_id) REFERENCES categories(id)
+      FOREIGN KEY (created_by) REFERENCES users(id)
     )
   `);
 

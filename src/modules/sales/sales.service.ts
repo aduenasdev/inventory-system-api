@@ -11,6 +11,7 @@ import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
+import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 
 export class SalesService {
   // Generar número de factura
@@ -50,7 +51,7 @@ export class SalesService {
       );
 
     if (!rate) {
-      throw new Error(
+      throw new NotFoundError(
         `No existe tasa de cambio para la fecha ${date} entre las monedas especificadas. Debe crearla antes de continuar.`
       );
     }
@@ -76,7 +77,7 @@ export class SalesService {
         .select()
         .from(products)
         .where(eq(products.id, productId));
-      throw new Error(
+      throw new ValidationError(
         `Stock insuficiente para el producto "${product.name}". Disponible: ${currentQty}, Solicitado: ${quantity}`
       );
     }
@@ -117,7 +118,7 @@ export class SalesService {
           .where(eq(products.id, detail.productId));
 
         if (!product) {
-          throw new Error(`Producto con ID ${detail.productId} no encontrado`);
+          throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
         const productCurrencyId = product.currencyId;
@@ -190,7 +191,7 @@ export class SalesService {
       .where(eq(sales.id, id));
 
     if (!sale) {
-      throw new Error("Factura de venta no encontrada");
+      throw new NotFoundError("Factura de venta no encontrada");
     }
 
     const details = await db
@@ -218,7 +219,7 @@ export class SalesService {
     const sale = await this.getSaleById(id);
 
     if (sale.status !== "PENDING") {
-      throw new Error("Solo se pueden aceptar facturas en estado PENDING");
+      throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
     }
 
     // Revalidar stock al momento de aceptar
@@ -263,7 +264,7 @@ export class SalesService {
     const sale = await this.getSaleById(id);
 
     if (sale.status === "CANCELLED") {
-      throw new Error("La factura ya está cancelada");
+      throw new ConflictError("La factura ya está cancelada");
     }
 
     const wasApproved = sale.status === "APPROVED";
@@ -518,3 +519,4 @@ export class SalesService {
     }
   }
 }
+

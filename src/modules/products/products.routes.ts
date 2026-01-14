@@ -5,11 +5,10 @@ import {
   getProductHandler,
   getProductsByCategoryHandler,
   updateProductHandler,
-  disableProductHandler,
-  enableProductHandler,
   uploadProductImageHandler,
   deleteProductImageHandler,
   getProductImageHandler,
+  getProductThumbnailHandler,
 } from "./products.controller";
 
 // Miniatura del producto
@@ -59,18 +58,6 @@ router.put(
   validate(updateProductSchema),
   updateProductHandler
 );
-router.put(
-  "/:productId/disable",
-  authMiddleware,
-  hasPermission("products.delete"),
-  disableProductHandler
-);
-router.put(
-  "/:productId/enable",
-  authMiddleware,
-  hasPermission("products.update"),
-  enableProductHandler
-);
 
 // Rutas de imágenes
 router.post(
@@ -87,9 +74,10 @@ router.delete(
   deleteProductImageHandler
 );
 
-// Imagen grande del producto (requiere autenticación)
+// Imagen grande del producto (acceso público)
 router.get("/image/:productId.webp", getProductImageHandler);
 
-
+// Miniatura del producto (acceso público)
+router.get("/thumb/:productId.webp", getProductThumbnailHandler);
 
 export default router;

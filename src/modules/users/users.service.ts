@@ -9,6 +9,7 @@ import { transfers } from "../../db/schema/transfers";
 import { and, eq, inArray } from "drizzle-orm";
 import { users } from "../../db/schema/users";
 import bcrypt from "bcrypt";
+import { ConflictError, ValidationError, ForbiddenError, NotFoundError } from "../../utils/errors";
 
 export async function assignRoleToUser(
   userId: number,
@@ -17,7 +18,7 @@ export async function assignRoleToUser(
 ) {
   // Evitar que un usuario modifique sus propios roles
   if (userId === currentUserId) {
-    throw new Error("No puedes modificar tus propios roles por política de seguridad. Contacta a soporte para asistencia.");
+    throw new ForbiddenError("No puedes modificar tus propios roles por política de seguridad. Contacta a soporte para asistencia.");
   }
 
   // Si viene roleIds (array), reemplazar todos los roles
@@ -30,7 +31,7 @@ export async function assignRoleToUser(
         .where(inArray(roles.id, data.roleIds));
       
       if (existingRoles.length !== data.roleIds.length) {
-        throw new Error("Al menos un rol de los seleccionados no existe");
+        throw new NotFoundError("Al menos un rol de los seleccionados no existe");
       }
     }
 
@@ -59,7 +60,7 @@ export async function assignRoleToUser(
       .limit(1);
     
     if (roleExists.length === 0) {
-      throw new Error("El rol seleccionado no existe");
+      throw new NotFoundError("El rol seleccionado no existe");
     }
 
     // Verificar si el usuario ya tiene ese rol
@@ -69,20 +70,19 @@ export async function assignRoleToUser(
       .where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, data.roleId)));
     
     if (existing.length > 0) {
-      throw new Error("El usuario ya tiene ese rol asignado");
-    }
+        throw new ConflictError("El usuario ya tiene ese rol asignado");
     
     await db.insert(userRoles).values({ userId, roleId: data.roleId });
     return { message: "Rol asignado al usuario" };
   }
 
-  throw new Error("Debe proporcionar roleId o roleIds");
+  throw new ValidationError("Debe proporcionar roleId o roleIds");
 }
 
 export async function removeRoleFromUser(userId: number, roleId: number, currentUserId: number) {
   // Evitar que un usuario modifique sus propios roles
   if (userId === currentUserId) {
-    throw new Error("No puedes modificar tus propios roles por política de seguridad. Contacta a soporte para asistencia.");
+    throw new ForbiddenError("No puedes modificar tus propios roles por política de seguridad. Contacta a soporte para asistencia.");
   }
 
   await db
@@ -103,7 +103,7 @@ export async function createUser(data: {
   // Verificar si ya existe un usuario con ese email
   const existing = await db.select().from(users).where(eq(users.email, data.email));
   if (existing.length > 0) {
-    throw new Error(`Ya existe un usuario con el email "${data.email}"`);
+    throw new ConflictError(`Ya existe un usuario con el email "${data.email}"`);
   }
 
   // Validar que todos los roles existan
@@ -114,7 +114,7 @@ export async function createUser(data: {
       .where(inArray(roles.id, data.roleIds));
     
     if (existingRoles.length !== data.roleIds.length) {
-      throw new Error("Al menos un rol de los seleccionados no existe");
+      throw new NotFoundError("Al menos un rol de los seleccionados no existe");
     }
   }
 
@@ -126,7 +126,7 @@ export async function createUser(data: {
       .where(inArray(warehouses.id, data.warehouseIds));
     
     if (existingWarehouses.length !== data.warehouseIds.length) {
-      throw new Error("Al menos un almacén de los seleccionados no existe");
+      throw new NotFoundError("Al menos un almacén de los seleccionados no existe");
     }
   }
   
@@ -284,7 +284,7 @@ export async function updateUser(userId: number, data: {
     // Verificar si el email ya está en uso por otro usuario
     const existing = await db.select().from(users).where(eq(users.email, data.email));
     if (existing.length > 0 && existing[0].id !== userId) {
-      throw new Error(`El email "${data.email}" ya está en uso por otro usuario`);
+      throw new ConflictError(`El email "${data.email}" ya está en uso por otro usuario`);
     }
     updateData.email = data.email;
   }
@@ -304,7 +304,7 @@ export async function updateUser(userId: number, data: {
         .where(inArray(roles.id, data.roleIds));
       
       if (existingRoles.length !== data.roleIds.length) {
-        throw new Error("Al menos un rol de los seleccionados no existe");
+        throw new NotFoundError("Al menos un rol de los seleccionados no existe");
       }
     }
     
@@ -331,7 +331,7 @@ export async function updateUser(userId: number, data: {
         .where(inArray(warehouses.id, data.warehouseIds));
       
       if (existingWarehouses.length !== data.warehouseIds.length) {
-        throw new Error("Al menos un almacén de los seleccionados no existe");
+        throw new NotFoundError("Al menos un almacén de los seleccionados no existe");
       }
     }
     
@@ -360,7 +360,7 @@ export async function updateUser(userId: number, data: {
 export async function disableUser(userId: number, currentUserId: number) {
   // Evitar que un usuario se deshabilite a sí mismo
   if (userId === currentUserId) {
-    throw new Error("No puedes deshabilitarte a ti mismo por política de seguridad. Contacta a soporte para asistencia.");
+    throw new ForbiddenError("No puedes deshabilitarte a ti mismo por política de seguridad. Contacta a soporte para asistencia.");
   }
 
   await db.update(users).set({ enabled: false }).where(eq(users.id, userId));
@@ -375,7 +375,7 @@ export async function enableUser(userId: number) {
 export async function deleteUser(userId: number, currentUserId: number) {
   // Evitar que un usuario se elimine a sí mismo
   if (userId === currentUserId) {
-    throw new Error("No puedes eliminarte a ti mismo por política de seguridad. Contacta a soporte para asistencia.");
+    throw new ForbiddenError("No puedes eliminarte a ti mismo por política de seguridad. Contacta a soporte para asistencia.");
   }
 
   // Verificar si el usuario tiene ventas asociadas (como creador)
@@ -386,7 +386,7 @@ export async function deleteUser(userId: number, currentUserId: number) {
     .limit(1);
   
   if (salesAsCreator.length > 0) {
-    throw new Error("No se puede eliminar el usuario porque tiene ventas asociadas");
+    throw new ValidationError("No se puede eliminar el usuario porque tiene ventas asociadas");
   }
 
   // Verificar si el usuario tiene compras asociadas (como creador)
@@ -397,7 +397,7 @@ export async function deleteUser(userId: number, currentUserId: number) {
     .limit(1);
   
   if (purchasesAsCreator.length > 0) {
-    throw new Error("No se puede eliminar el usuario porque tiene compras asociadas");
+    throw new ValidationError("No se puede eliminar el usuario porque tiene compras asociadas");
   }
 
   // Verificar si el usuario tiene transferencias asociadas (como creador)
@@ -408,7 +408,7 @@ export async function deleteUser(userId: number, currentUserId: number) {
     .limit(1);
   
   if (transfersAsCreator.length > 0) {
-    throw new Error("No se puede eliminar el usuario porque tiene transferencias asociadas");
+    throw new ValidationError("No se puede eliminar el usuario porque tiene transferencias asociadas");
   }
 
   // Si no tiene registros asociados, eliminar el usuario
@@ -417,3 +417,4 @@ export async function deleteUser(userId: number, currentUserId: number) {
   
   return { message: "Usuario eliminado exitosamente" };
 }
+

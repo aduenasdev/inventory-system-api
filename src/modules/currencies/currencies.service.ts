@@ -5,6 +5,7 @@ import { purchases } from "../../db/schema/purchases";
 import { sales } from "../../db/schema/sales";
 import { exchangeRates } from "../../db/schema/exchange_rates";
 import { eq, or } from "drizzle-orm";
+import { ConflictError, ValidationError, ForbiddenError } from "../../utils/errors";
 
 export async function createCurrency(data: {
   name: string;
@@ -15,13 +16,13 @@ export async function createCurrency(data: {
   // Verificar si ya existe una moneda con ese nombre
   const existingName = await db.select().from(currencies).where(eq(currencies.name, data.name));
   if (existingName.length > 0) {
-    throw new Error(`Ya existe una moneda con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe una moneda con el nombre "${data.name}"`);
   }
 
   // Verificar si ya existe una moneda con ese código
   const existingCode = await db.select().from(currencies).where(eq(currencies.code, data.code));
   if (existingCode.length > 0) {
-    throw new Error(`Ya existe una moneda con el código "${data.code}"`);
+    throw new ConflictError(`Ya existe una moneda con el código "${data.code}"`);
   }
 
   const [insert] = await db.insert(currencies).values(data);
@@ -51,7 +52,7 @@ export async function updateCurrency(
 ) {
   // CUP (id=1) es la moneda base y no puede ser editada
   if (currencyId === 1) {
-    throw new Error("La moneda base CUP no puede ser editada");
+    throw new ForbiddenError("La moneda base CUP no puede ser editada");
   }
 
   const updateData: any = {};
@@ -59,7 +60,7 @@ export async function updateCurrency(
   if (data.name) {
     const existing = await db.select().from(currencies).where(eq(currencies.name, data.name));
     if (existing.length > 0 && existing[0].id !== currencyId) {
-      throw new Error(`El nombre "${data.name}" ya está en uso por otra moneda`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otra moneda`);
     }
     updateData.name = data.name;
   }
@@ -67,7 +68,7 @@ export async function updateCurrency(
   if (data.code) {
     const existing = await db.select().from(currencies).where(eq(currencies.code, data.code));
     if (existing.length > 0 && existing[0].id !== currencyId) {
-      throw new Error(`El código "${data.code}" ya está en uso por otra moneda`);
+      throw new ConflictError(`El código "${data.code}" ya está en uso por otra moneda`);
     }
     updateData.code = data.code;
   }
@@ -85,7 +86,7 @@ export async function updateCurrency(
 export async function disableCurrency(currencyId: number) {
   // CUP (id=1) es la moneda base y no puede ser deshabilitada
   if (currencyId === 1) {
-    throw new Error("La moneda base CUP no puede ser deshabilitada");
+    throw new ForbiddenError("La moneda base CUP no puede ser deshabilitada");
   }
 
   await db.update(currencies).set({ isActive: false }).where(eq(currencies.id, currencyId));
@@ -100,7 +101,7 @@ export async function enableCurrency(currencyId: number) {
 export async function deleteCurrency(currencyId: number) {
   // CUP (id=1) es la moneda base y no puede ser eliminada
   if (currencyId === 1) {
-    throw new Error("La moneda base CUP no puede ser eliminada");
+    throw new ForbiddenError("La moneda base CUP no puede ser eliminada");
   }
 
   // Verificar si la moneda está asociada a productos
@@ -111,7 +112,7 @@ export async function deleteCurrency(currencyId: number) {
     .limit(1);
 
   if (productsWithCurrency.length > 0) {
-    throw new Error("No se puede eliminar la moneda porque tiene productos asociados");
+    throw new ValidationError("No se puede eliminar la moneda porque tiene productos asociados");
   }
 
   // Verificar si está asociada a compras
@@ -122,7 +123,7 @@ export async function deleteCurrency(currencyId: number) {
     .limit(1);
 
   if (purchasesWithCurrency.length > 0) {
-    throw new Error("No se puede eliminar la moneda porque tiene facturas de compra asociadas");
+    throw new ValidationError("No se puede eliminar la moneda porque tiene facturas de compra asociadas");
   }
 
   // Verificar si está asociada a ventas
@@ -133,7 +134,7 @@ export async function deleteCurrency(currencyId: number) {
     .limit(1);
 
   if (salesWithCurrency.length > 0) {
-    throw new Error("No se puede eliminar la moneda porque tiene facturas de venta asociadas");
+    throw new ValidationError("No se puede eliminar la moneda porque tiene facturas de venta asociadas");
   }
 
   // Verificar si está en tasas de cambio (from o to)
@@ -149,10 +150,11 @@ export async function deleteCurrency(currencyId: number) {
     .limit(1);
 
   if (exchangeRatesWithCurrency.length > 0) {
-    throw new Error("No se puede eliminar la moneda porque tiene tasas de cambio asociadas");
+    throw new ValidationError("No se puede eliminar la moneda porque tiene tasas de cambio asociadas");
   }
 
   // Si no tiene asociaciones, eliminar
   await db.delete(currencies).where(eq(currencies.id, currencyId));
   return { message: "Moneda eliminada exitosamente" };
 }
+

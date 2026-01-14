@@ -2,6 +2,7 @@ import { db } from "../../db/connection";
 import { paymentTypes } from "../../db/schema/payment_types";
 import { salesDetail } from "../../db/schema/sales_detail";
 import { eq } from "drizzle-orm";
+import { ConflictError, ValidationError } from "../../utils/errors";
 
 export async function createPaymentType(data: {
   type: string;
@@ -10,7 +11,7 @@ export async function createPaymentType(data: {
   // Verificar si ya existe un tipo de pago con ese tipo
   const existing = await db.select().from(paymentTypes).where(eq(paymentTypes.type, data.type));
   if (existing.length > 0) {
-    throw new Error(`Ya existe un tipo de pago con el tipo "${data.type}"`);
+    throw new ConflictError(`Ya existe un tipo de pago con el tipo "${data.type}"`);
   }
 
   const [insert] = await db.insert(paymentTypes).values(data);
@@ -41,7 +42,7 @@ export async function updatePaymentType(
   if (data.type) {
     const existing = await db.select().from(paymentTypes).where(eq(paymentTypes.type, data.type));
     if (existing.length > 0 && existing[0].id !== paymentTypeId) {
-      throw new Error(`El tipo "${data.type}" ya está en uso por otro tipo de pago`);
+      throw new ConflictError(`El tipo "${data.type}" ya está en uso por otro tipo de pago`);
     }
     updateData.type = data.type;
   }
@@ -74,9 +75,11 @@ export async function deletePaymentType(paymentTypeId: number) {
     .limit(1);
 
   if (salesWithPaymentType.length > 0) {
-    throw new Error("No se puede eliminar el tipo de pago porque tiene ventas asociadas");
+    throw new ValidationError("No se puede eliminar el tipo de pago porque tiene ventas asociadas");
   }
 
   await db.delete(paymentTypes).where(eq(paymentTypes.id, paymentTypeId));
   return { message: "Tipo de pago eliminado exitosamente" };
 }
+
+

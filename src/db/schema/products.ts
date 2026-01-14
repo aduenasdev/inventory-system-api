@@ -1,4 +1,4 @@
-import { mysqlTable, serial, varchar, text, decimal, int, boolean, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, varchar, text, decimal, int, timestamp } from "drizzle-orm/mysql-core";
 
 export const products = mysqlTable("products", {
   id: serial("id").primaryKey(),
@@ -9,9 +9,9 @@ export const products = mysqlTable("products", {
   salePrice: decimal("sale_price", { precision: 18, scale: 2 }),
   currencyId: int("currency_id").notNull(),
   unitId: int("unit_id").notNull(),
-  categoryId: int("category_id").notNull(),
+  categoryId: int("category_id").notNull().default(0),
   imageUrl: varchar("image_url", { length: 500 }),
-  isActive: boolean("is_active").notNull().default(true),
+  createdBy: int("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull().onUpdateNow(),
 });

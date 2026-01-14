@@ -4,12 +4,13 @@ import { rolePermissions } from "../../db/schema/role_permissions";
 import { permissions } from "../../db/schema/permissions";
 import { userRoles } from "../../db/schema/user_roles";
 import { eq, sql } from "drizzle-orm";
+import { ConflictError, ValidationError } from "../../utils/errors";
 
 export async function createRole(data: { name: string; description?: string }) {
   // Verificar si ya existe un rol con ese nombre
   const existing = await db.select().from(roles).where(eq(roles.name, data.name));
   if (existing.length > 0) {
-    throw new Error(`Ya existe un rol con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe un rol con el nombre "${data.name}"`);
   }
   
   const [newRole] = await db.insert(roles).values(data);
@@ -32,7 +33,7 @@ export async function updateRole(roleId: number, data: { name?: string; descript
     // Verificar si el nombre ya está en uso por otro rol
     const existing = await db.select().from(roles).where(eq(roles.name, data.name));
     if (existing.length > 0 && existing[0].id !== roleId) {
-      throw new Error(`El nombre "${data.name}" ya está en uso por otro rol`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otro rol`);
     }
     updateData.name = data.name;
   }
@@ -53,7 +54,7 @@ export async function addPermissionToRole(roleId: number, permissionId: number) 
     .where(sql`${rolePermissions.roleId} = ${roleId} AND ${rolePermissions.permissionId} = ${permissionId}`);
   
   if (existing.length > 0) {
-    throw new Error("El rol ya tiene ese permiso asignado");
+    throw new ConflictError("El rol ya tiene ese permiso asignado");
   }
   
   await db.insert(rolePermissions).values({ roleId, permissionId });
@@ -83,7 +84,7 @@ export async function deleteRole(roleId: number) {
     .limit(1);
 
   if (usersWithRole.length > 0) {
-    throw new Error("No se puede eliminar el rol porque está asignado a usuarios");
+    throw new ValidationError("No se puede eliminar el rol porque está asignado a usuarios");
   }
 
   // Delete associated permissions

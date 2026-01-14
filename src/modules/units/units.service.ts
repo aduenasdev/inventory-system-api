@@ -2,6 +2,7 @@ import { db } from "../../db/connection";
 import { units } from "../../db/schema/units";
 import { products } from "../../db/schema/products";
 import { eq } from "drizzle-orm";
+import { ConflictError, ValidationError } from "../../utils/errors";
 
 export async function createUnit(data: {
   name: string;
@@ -12,13 +13,13 @@ export async function createUnit(data: {
   // Verificar si ya existe una unidad con ese nombre
   const existingName = await db.select().from(units).where(eq(units.name, data.name));
   if (existingName.length > 0) {
-    throw new Error(`Ya existe una unidad con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe una unidad con el nombre "${data.name}"`);
   }
 
   // Verificar si ya existe una unidad con ese nombre corto
   const existingShortName = await db.select().from(units).where(eq(units.shortName, data.shortName));
   if (existingShortName.length > 0) {
-    throw new Error(`Ya existe una unidad con el nombre corto "${data.shortName}"`);
+    throw new ConflictError(`Ya existe una unidad con el nombre corto "${data.shortName}"`);
   }
 
   const [insert] = await db.insert(units).values(data);
@@ -55,7 +56,7 @@ export async function updateUnit(
     // Verificar si el nombre ya está en uso por otra unidad
     const existing = await db.select().from(units).where(eq(units.name, data.name));
     if (existing.length > 0 && existing[0].id !== unitId) {
-      throw new Error(`El nombre "${data.name}" ya está en uso por otra unidad`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otra unidad`);
     }
     updateData.name = data.name;
   }
@@ -64,7 +65,7 @@ export async function updateUnit(
     // Verificar si el nombre corto ya está en uso por otra unidad
     const existing = await db.select().from(units).where(eq(units.shortName, data.shortName));
     if (existing.length > 0 && existing[0].id !== unitId) {
-      throw new Error(`El nombre corto "${data.shortName}" ya está en uso por otra unidad`);
+      throw new ConflictError(`El nombre corto "${data.shortName}" ya está en uso por otra unidad`);
     }
     updateData.shortName = data.shortName;
   }
@@ -88,7 +89,7 @@ export async function disableUnit(unitId: number) {
     .limit(1);
 
   if (productsWithUnit.length > 0) {
-    throw new Error("No se puede deshabilitar la unidad porque tiene productos asociados");
+    throw new ValidationError("No se puede deshabilitar la unidad porque tiene productos asociados");
   }
 
   await db.update(units).set({ isActive: false }).where(eq(units.id, unitId));

@@ -7,6 +7,7 @@ import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
+import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 
 export class PurchasesService {
   // Generar número de factura auto-incremental
@@ -46,7 +47,7 @@ export class PurchasesService {
       );
 
     if (!rate) {
-      throw new Error(
+      throw new NotFoundError(
         `No existe tasa de cambio para la fecha ${date} entre las monedas especificadas. Debe crearla antes de continuar.`
       );
     }
@@ -84,7 +85,7 @@ export class PurchasesService {
           .where(eq(products.id, detail.productId));
 
         if (!product) {
-          throw new Error(`Producto con ID ${detail.productId} no encontrado`);
+          throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
         const productCurrencyId = product.currencyId;
@@ -157,7 +158,7 @@ export class PurchasesService {
       .where(eq(purchases.id, id));
 
     if (!purchase) {
-      throw new Error("Factura de compra no encontrada");
+      throw new NotFoundError("Factura de compra no encontrada");
     }
 
     const details = await db
@@ -184,7 +185,7 @@ export class PurchasesService {
     const purchase = await this.getPurchaseById(id);
 
     if (purchase.status !== "PENDING") {
-      throw new Error("Solo se pueden aceptar facturas en estado PENDING");
+      throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
     }
 
     // Actualizar estado de factura
@@ -226,7 +227,7 @@ export class PurchasesService {
     const purchase = await this.getPurchaseById(id);
 
     if (purchase.status === "CANCELLED") {
-      throw new Error("La factura ya está cancelada");
+      throw new ConflictError("La factura ya está cancelada");
     }
 
     const wasApproved = purchase.status === "APPROVED";
@@ -320,3 +321,4 @@ export class PurchasesService {
     }
   }
 }
+

@@ -1,8 +1,14 @@
 import { db } from "../../db/connection";
 import { products } from "../../db/schema/products";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { processAndSaveImage, deleteProductImages } from "../../utils/imageStorage";
 import logger from "../../utils/logger";
+import { ConflictError, NotFoundError, ValidationError } from "../../utils/errors";
+import { currencies } from "../../db/schema/currencies";
+import { units } from "../../db/schema/units";
+import { categories } from "../../db/schema/categories";
+import { promises as fs } from "fs";
+import path from "path";
 
 export async function createProduct(data: {
   name: string;
@@ -12,24 +18,46 @@ export async function createProduct(data: {
   salePrice?: number;
   currencyId: number;
   unitId: number;
-  categoryId: number;
+  categoryId?: number;
+  createdBy: number;
   imageBase64?: string;
 }) {
+  // Validar que currency existe
+  const [currency] = await db.select().from(currencies).where(eq(currencies.id, data.currencyId));
+  if (!currency) {
+    throw new NotFoundError(`La moneda con ID ${data.currencyId} no existe`);
+  }
+
+  // Validar que unit existe
+  const [unit] = await db.select().from(units).where(eq(units.id, data.unitId));
+  if (!unit) {
+    throw new NotFoundError(`La unidad con ID ${data.unitId} no existe`);
+  }
+
+  // Validar que category existe (si no es 0)
+  if (data.categoryId && data.categoryId !== 0) {
+    const [category] = await db.select().from(categories).where(eq(categories.id, data.categoryId));
+    if (!category) {
+      throw new NotFoundError(`La categoría con ID ${data.categoryId} no existe`);
+    }
+  }
+
   // Verificar si ya existe un producto con ese nombre
   const existingName = await db.select().from(products).where(eq(products.name, data.name));
   if (existingName.length > 0) {
-    throw new Error(`Ya existe un producto con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe un producto con el nombre "${data.name}"`);
   }
 
   // Verificar si ya existe un producto con ese código
   const existingCode = await db.select().from(products).where(eq(products.code, data.code));
   if (existingCode.length > 0) {
-    throw new Error(`Ya existe un producto con el código "${data.code}"`);
+    throw new ConflictError(`Ya existe un producto con el código "${data.code}"`);
   }
 
   const { imageBase64, ...rest } = data;
   const [insert] = await db.insert(products).values({
     ...rest,
+    categoryId: rest.categoryId ?? 0,
     costPrice: rest.costPrice !== undefined ? rest.costPrice.toString() : undefined,
     salePrice: rest.salePrice !== undefined ? rest.salePrice.toString() : undefined,
   });
@@ -44,19 +72,15 @@ export async function createProduct(data: {
 import { and, like } from "drizzle-orm";
 
 export async function getAllProducts(params: {
-  active?: boolean,
   page?: number,
   pageSize?: number,
   name?: string,
   categoryId?: number
 }) {
-  const { active, page = 1, pageSize = 20, name, categoryId } = params;
+  const { page = 1, pageSize = 20, name, categoryId } = params;
   const log = logger;
   try {
     const whereClauses = [];
-    if (active !== undefined) {
-      whereClauses.push(eq(products.isActive, active));
-    }
     if (name) {
       // Búsqueda LIKE por nombre o código (contiene)
       const { or, like } = require("drizzle-orm");
@@ -70,33 +94,37 @@ export async function getAllProducts(params: {
     }
     const where = whereClauses.length > 0 ? and(...whereClauses) : undefined;
     const offset = (page - 1) * pageSize;
-    // Total
-    const totalQuery = db.select().from(products);
-    const total = where
-      ? (await totalQuery.where(where)).length
-      : (await totalQuery).length;
+    
+    // Total usando COUNT(*) eficiente
+    const [{ value: total }] = where
+      ? await db.select({ value: count() }).from(products).where(where)
+      : await db.select({ value: count() }).from(products);
+    
     // Items
-    const itemsQuery = db.select().from(products);
-    let items = where
-      ? await itemsQuery.where(where).limit(pageSize).offset(offset)
-      : await itemsQuery.limit(pageSize).offset(offset);
+    const items = where
+      ? await db.select().from(products).where(where).limit(pageSize).offset(offset)
+      : await db.select().from(products).limit(pageSize).offset(offset);
 
-    // Agregar thumb (miniatura en base64) a cada producto y mantener imageUrl
-    items = await Promise.all(items.map(async (product) => {
-      const fs = require("fs");
-      const path = require("path");
+    // Agregar URLs de imágenes en vez de base64 para mejor performance
+    const itemsWithUrls = await Promise.all(items.map(async (product) => {
       const thumbPath = path.join(__dirname, "..", "..", "..", "uploads", "products", `product_${product.id}_thumb.webp`);
-      let thumb = null;
-      if (fs.existsSync(thumbPath)) {
-        const buffer = fs.readFileSync(thumbPath);
-        thumb = `data:image/webp;base64,${buffer.toString("base64")}`;
+      let hasThumb = false;
+      try {
+        await fs.access(thumbPath);
+        hasThumb = true;
+      } catch {
+        hasThumb = false;
       }
-      // Mantener imageUrl y retornar el producto + thumb
-      return { ...product, thumb };
+      
+      return {
+        ...product,
+        thumbUrl: hasThumb ? `/api/products/thumb/${product.id}.webp` : null,
+        imageUrl: hasThumb ? `/api/products/image/${product.id}.webp` : null,
+      };
     }));
-    log.info({ total, page, pageSize, active, name, categoryId }, "Consulta paginada de productos ejecutada");
+    log.info({ total, page, pageSize, name, categoryId }, "Consulta paginada de productos ejecutada");
     return {
-      items,
+      items: itemsWithUrls,
       total,
       page,
       pageSize,
@@ -137,7 +165,7 @@ export async function updateProduct(
   if (data.name) {
     const existing = await db.select().from(products).where(eq(products.name, data.name));
     if (existing.length > 0 && existing[0].id !== productId) {
-      throw new Error(`El nombre "${data.name}" ya está en uso por otro producto`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otro producto`);
     }
     updateData.name = data.name;
   }
@@ -145,7 +173,7 @@ export async function updateProduct(
   if (data.code) {
     const existing = await db.select().from(products).where(eq(products.code, data.code));
     if (existing.length > 0 && existing[0].id !== productId) {
-      throw new Error(`El código "${data.code}" ya está en uso por otro producto`);
+      throw new ConflictError(`El código "${data.code}" ya está en uso por otro producto`);
     }
     updateData.code = data.code;
   }
@@ -155,21 +183,11 @@ export async function updateProduct(
   if (data.salePrice !== undefined) updateData.salePrice = data.salePrice.toString();
   if (data.currencyId) updateData.currencyId = data.currencyId;
   if (data.unitId) updateData.unitId = data.unitId;
-  if (data.categoryId) updateData.categoryId = data.categoryId;
+  if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
 
   await db.update(products).set(updateData).where(eq(products.id, productId));
   const updatedProduct = await getProductById(productId);
   return updatedProduct;
-}
-
-export async function disableProduct(productId: number) {
-  await db.update(products).set({ isActive: false }).where(eq(products.id, productId));
-  return { message: "Producto deshabilitado" };
-}
-
-export async function enableProduct(productId: number) {
-  await db.update(products).set({ isActive: true }).where(eq(products.id, productId));
-  return { message: "Producto habilitado" };
 }
 
 // Subir imagen de producto
@@ -177,7 +195,7 @@ export async function uploadProductImage(productId: number, imageBuffer: Buffer)
   // Verificar que el producto existe
   const product = await getProductById(productId);
   if (!product) {
-    throw new Error("Producto no encontrado");
+    throw new NotFoundError("Producto no encontrado");
   }
 
   // Si ya tenía imagen, eliminarla
@@ -190,9 +208,10 @@ export async function uploadProductImage(productId: number, imageBuffer: Buffer)
 export async function deleteProductImage(productId: number) {
   const product = await getProductById(productId);
   if (!product) {
-    throw new Error("Producto no encontrado");
+    throw new NotFoundError("Producto no encontrado");
   }
 
   await deleteProductImages(productId);
   return { message: "Imagen eliminada" };
 }
+

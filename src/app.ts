@@ -3,6 +3,9 @@ import cors from "cors";
 import morgan from "morgan";
 import helmet from "helmet";
 import path from "path";
+import { env } from "./config/env";
+import { errorHandler } from "./middlewares/errorHandler";
+import { apiLimiter, authLimiter } from "./middlewares/rateLimiter";
 import authRoutes from "./modules/auth/auth.routes";
 import roleRoutes from "./modules/roles/roles.routes";
 import permissionRoutes from "./modules/permissions/permissions.routes";
@@ -22,10 +25,27 @@ import { authMiddleware } from "./middlewares/auth.middleware";
 
 const app = express();
 
+// Security middlewares
 app.use(helmet());
-app.use(cors());
+
+// CORS configurado
+const allowedOrigins = env.ALLOWED_ORIGINS?.split(",") || "*";
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
+
+// Body parser
 app.use(express.json());
+
+// Logging
 app.use(morgan("dev"));
+
+// Rate limiting general (aplica a toda la API excepto /health)
+app.use(apiLimiter);
 
 // Servir imágenes estáticas con autenticación
 app.use("/uploads", authMiddleware, express.static(path.join(process.cwd(), "uploads"), {
@@ -34,7 +54,8 @@ app.use("/uploads", authMiddleware, express.static(path.join(process.cwd(), "upl
   lastModified: true,
 }));
 
-app.use("/auth", authRoutes);
+// Rutas de autenticación con rate limiting especial
+app.use("/auth", authLimiter, authRoutes);
 app.use("/roles", roleRoutes);
 app.use("/permissions", permissionRoutes);
 app.use("/users", userRoutes);
@@ -51,5 +72,8 @@ app.use("/sales", saleRoutes);
 app.use("/transfers", transferRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+// Middleware de manejo de errores (debe ser el último)
+app.use(errorHandler);
 
 export default app;

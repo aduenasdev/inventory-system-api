@@ -7,6 +7,7 @@ import { userWarehouses } from "../../db/schema/user_warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
+import { ForbiddenError } from "../../utils/errors";
 
 export class InventoryService {
   // Obtener stock actual de un producto en un almacén
@@ -160,7 +161,7 @@ export class InventoryService {
     // Si se especifica un almacén, validar que el usuario tenga acceso
     if (warehouseId) {
       if (!allowedWarehouseIds.includes(warehouseId)) {
-        throw new Error("No tiene acceso a este almacén");
+        throw new ForbiddenError("No tiene acceso a este almacén");
       }
       allowedWarehouseIds = [warehouseId];
     }
@@ -317,7 +318,7 @@ export class InventoryService {
 
     if (warehouseId) {
       if (!allowedWarehouseIds.includes(warehouseId)) {
-        throw new Error("No tiene acceso a este almacén");
+        throw new ForbiddenError("No tiene acceso a este almacén");
       }
       allowedWarehouseIds = [warehouseId];
     }

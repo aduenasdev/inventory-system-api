@@ -9,8 +9,10 @@ import { rolePermissions } from "../db/schema/role_permissions";
 import { eq, inArray } from "drizzle-orm";
 import { loggerPerUserMiddleware } from "../utils/loggerPerUser";
 import logger from "../utils/logger";
+import { env } from "../config/env";
+import { UnauthorizedError } from "../utils/errors";
 
-const JWT_SECRET = process.env.JWT_SECRET!;
+const JWT_SECRET = env.JWT_SECRET;
 
 export async function authMiddleware(
   req: Request,
@@ -20,11 +22,11 @@ export async function authMiddleware(
   const authHeader = req.headers.authorization;
 
   // Log intento de autenticación
-  (req.logger || logger).info({ authHeader }, "Intento de autenticación");
+  (req.logger || logger).info({ authHeader: authHeader ? "Bearer ***" : "none" }, "Intento de autenticación");
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     (req.logger || logger).warn("No token provided");
-    return res.status(401).json({ message: "Unauthorized: No token provided" });
+    throw new UnauthorizedError("No se proporcionó token de autenticación");
   }
 
   const token = authHeader.split(" ")[1];
@@ -46,7 +48,7 @@ export async function authMiddleware(
 
     if (!user) {
       (req.logger || logger).warn({ userId: decoded.userId }, "User not found");
-      return res.status(401).json({ message: "Unauthorized: User not found" });
+      throw new UnauthorizedError("Usuario no encontrado");
     }
 
     // Inicializar logger por usuario
@@ -88,7 +90,10 @@ export async function authMiddleware(
     req.logger?.info({ userId: user.id, roles: roleNames, permissions: permissionNames }, "Usuario autenticado con roles y permisos");
     next();
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      throw error;
+    }
     (req.logger || logger).warn({ error }, "Token inválido o error en autenticación");
-    return res.status(401).json({ message: "Unauthorized: Invalid token" });
+    throw new UnauthorizedError("Token inválido o expirado");
   }
 }
