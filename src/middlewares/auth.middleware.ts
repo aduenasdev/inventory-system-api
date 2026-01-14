@@ -63,7 +63,9 @@ export async function authMiddleware(
       .where(eq(userRoles.userId, user.id));
 
     if (userRolesResult.length === 0) {
-      res.locals.user = { ...user, roles: [], permissions: [] };
+      const userWithoutRoles = { ...user, roles: [], permissions: [] };
+      res.locals.user = userWithoutRoles;
+      req.user = userWithoutRoles; // Para que esté disponible en req.user
       req.logger?.info({ userId: user.id }, "Usuario sin roles asignados");
       return next();
     }
@@ -80,12 +82,15 @@ export async function authMiddleware(
 
     const permissionNames = permissionsResult.map((p) => p.permissionName);
 
-    // 4. Attach to res.locals
-    res.locals.user = {
+    // 4. Attach to res.locals and req.user
+    const authenticatedUser = {
       ...user,
       roles: roleNames,
       permissions: permissionNames,
     };
+    
+    res.locals.user = authenticatedUser;
+    req.user = authenticatedUser; // Para que esté disponible en req.user
 
     req.logger?.info({ userId: user.id, roles: roleNames, permissions: permissionNames }, "Usuario autenticado con roles y permisos");
     next();
