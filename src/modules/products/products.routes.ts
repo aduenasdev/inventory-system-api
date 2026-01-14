@@ -25,6 +25,10 @@ import { upload } from "../../utils/imageStorage";
 
 const router = Router();
 
+// Rutas de imágenes públicas (DEBEN estar antes de /:productId para evitar conflictos)
+router.get("/image/:productId.webp", getProductImageHandler);
+router.get("/thumb/:productId.webp", getProductThumbnailHandler);
+
 router.post(
   "/",
   authMiddleware,
@@ -73,11 +77,5 @@ router.delete(
   hasPermission("products.update"),
   deleteProductImageHandler
 );
-
-// Imagen grande del producto (acceso público)
-router.get("/image/:productId.webp", getProductImageHandler);
-
-// Miniatura del producto (acceso público)
-router.get("/thumb/:productId.webp", getProductThumbnailHandler);
 
 export default router;

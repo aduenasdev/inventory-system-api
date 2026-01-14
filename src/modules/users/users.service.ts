@@ -70,7 +70,8 @@ export async function assignRoleToUser(
       .where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, data.roleId)));
     
     if (existing.length > 0) {
-        throw new ConflictError("El usuario ya tiene ese rol asignado");
+      throw new ConflictError("El usuario ya tiene ese rol asignado");
+    }
     
     await db.insert(userRoles).values({ userId, roleId: data.roleId });
     return { message: "Rol asignado al usuario" };
