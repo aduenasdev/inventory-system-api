@@ -209,6 +209,8 @@ async function main() {
       warehouse_id INT NOT NULL,
       product_id INT NOT NULL,
       current_quantity DECIMAL(18, 2) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
       UNIQUE KEY unique_warehouse_product (warehouse_id, product_id),
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (product_id) REFERENCES products(id)
@@ -219,13 +221,14 @@ async function main() {
     CREATE TABLE inventory_movements (
       id INT AUTO_INCREMENT PRIMARY KEY,
       type ENUM('INVOICE_ENTRY', 'SALE_EXIT', 'TRANSFER_ENTRY', 'TRANSFER_EXIT', 'ADJUSTMENT_ENTRY', 'ADJUSTMENT_EXIT') NOT NULL,
-      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
       warehouse_id INT NOT NULL,
       product_id INT NOT NULL,
       quantity DECIMAL(18, 2) NOT NULL,
       reference VARCHAR(255),
       reason TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (product_id) REFERENCES products(id)
     )
@@ -476,13 +479,49 @@ async function main() {
 
   // Seed de moneda base CUP (no puede ser eliminada ni editada)
   await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places, is_active) VALUES 
-    ('Peso Cubano', 'CUP', '$', 2, TRUE)`);
+    ('Peso Cubano', 'CUP', '₱', 2, TRUE)`);
   console.log("Moneda base CUP creada (ID=1).");
 
-  // Seed de moneda USD
+  // Seed de monedas adicionales
   await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places) VALUES 
-    ('Dólar Estadounidense', 'USD', '$', 2)`);
-  console.log("Moneda USD creada.");
+    ('Dólar Estadounidense', 'USD', '$', 2),
+    ('Euro', 'EUR', '€', 2)`);
+  console.log("Monedas USD y EUR creadas.");
+
+  // Seed de unidades de medida más comunes
+  const commonUnits = [
+    { name: 'Unidad', short_name: 'u', description: 'Unidad individual', type: 'countable' },
+    { name: 'Kilogramo', short_name: 'kg', description: 'Unidad de masa', type: 'weight' },
+    { name: 'Gramo', short_name: 'g', description: 'Unidad de masa pequeña', type: 'weight' },
+    { name: 'Litro', short_name: 'L', description: 'Unidad de volumen', type: 'volume' },
+    { name: 'Mililitro', short_name: 'ml', description: 'Unidad de volumen pequeña', type: 'volume' },
+    { name: 'Metro', short_name: 'm', description: 'Unidad de longitud', type: 'length' },
+    { name: 'Centímetro', short_name: 'cm', description: 'Unidad de longitud pequeña', type: 'length' },
+    { name: 'Caja', short_name: 'cja', description: 'Empaque en caja', type: 'package' },
+    { name: 'Paquete', short_name: 'paq', description: 'Empaque en paquete', type: 'package' },
+    { name: 'Docena', short_name: 'doc', description: 'Conjunto de 12 unidades', type: 'countable' },
+    { name: 'Saco', short_name: 'sco', description: 'Empaque en saco', type: 'package' },
+    { name: 'Bulto', short_name: 'bto', description: 'Empaque en bulto', type: 'package' },
+  ];
+
+  for (const unit of commonUnits) {
+    await db.execute(sql`INSERT INTO units (name, short_name, description, type, is_active) 
+      VALUES (${unit.name}, ${unit.short_name}, ${unit.description}, ${unit.type}, TRUE)`);
+  }
+  console.log("Unidades de medida comunes creadas.");
+
+  // Seed de tipos de pago más comunes
+  const commonPaymentTypes = [
+    { type: 'Efectivo', description: 'Pago en efectivo' },
+    { type: 'Transferencia', description: 'Transferencia bancaria' },
+    { type: 'Zelle', description: 'Pago por Zelle' },
+  ];
+
+  for (const payment of commonPaymentTypes) {
+    await db.execute(sql`INSERT INTO payment_types (type, description, is_active) 
+      VALUES (${payment.type}, ${payment.description}, TRUE)`);
+  }
+  console.log("Tipos de pago comunes creados.");
 
   console.log("\n✅ Migración completada exitosamente!");
   console.log("📊 Base de datos creada desde cero con todas las tablas y datos iniciales.");

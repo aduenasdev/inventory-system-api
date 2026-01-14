@@ -7,6 +7,7 @@ import {
   updateProductHandler,
   uploadProductImageHandler,
   deleteProductImageHandler,
+  deleteProductHandler,
   getProductImageHandler,
   getProductThumbnailHandler,
 } from "./products.controller";
@@ -20,6 +21,7 @@ import {
   createProductSchema,
   updateProductSchema,
   getProductsQuerySchema,
+  deleteProductSchema,
 } from "./products.schemas";
 import { upload } from "../../utils/imageStorage";
 
@@ -76,6 +78,15 @@ router.delete(
   authMiddleware,
   hasPermission("products.update"),
   deleteProductImageHandler
+);
+
+// Eliminar producto
+router.delete(
+  "/:productId",
+  authMiddleware,
+  hasPermission("products.delete"),
+  validate(deleteProductSchema),
+  deleteProductHandler
 );
 
 export default router;

@@ -12,6 +12,7 @@ import {
   updateProduct,
   uploadProductImage,
   deleteProductImage,
+  deleteProduct,
 } from "./products.service";
 
 // Retorna la imagen grande del producto
@@ -122,6 +123,17 @@ export const deleteProductImageHandler = asyncHandler(async (req: Request, res: 
   log.info({ productId }, "Intento de eliminar imagen de producto");
   const result = await deleteProductImage(Number(productId));
   log.info({ productId }, "Imagen de producto eliminada");
+  
+  res.status(200).json(result);
+});
+
+export const deleteProductHandler = asyncHandler(async (req: Request, res: Response) => {
+  const log = req.logger || logger;
+  const { productId } = req.params;
+  
+  log.info({ productId }, "Intento de eliminar producto");
+  const result = await deleteProduct(Number(productId));
+  log.info({ productId }, "Producto eliminado exitosamente");
   
   res.status(200).json(result);
 });

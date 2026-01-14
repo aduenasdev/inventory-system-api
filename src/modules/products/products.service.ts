@@ -7,6 +7,11 @@ import { ConflictError, NotFoundError, ValidationError } from "../../utils/error
 import { currencies } from "../../db/schema/currencies";
 import { units } from "../../db/schema/units";
 import { categories } from "../../db/schema/categories";
+import { salesDetail } from "../../db/schema/sales_detail";
+import { purchasesDetail } from "../../db/schema/purchases_detail";
+import { transfersDetail } from "../../db/schema/transfers_detail";
+import { inventory } from "../../db/schema/inventory";
+import { inventoryMovements } from "../../db/schema/inventory_movements";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -210,5 +215,49 @@ export async function deleteProductImage(productId: number) {
 
   await deleteProductImages(productId);
   return { message: "Imagen eliminada" };
+}
+
+// Eliminar producto
+export async function deleteProduct(productId: number) {
+  const product = await getProductById(productId);
+  if (!product) {
+    throw new NotFoundError("Producto no encontrado");
+  }
+
+  // Verificar si el producto está en ventas
+  const salesWithProduct = await db.select().from(salesDetail).where(eq(salesDetail.productId, productId)).limit(1);
+  if (salesWithProduct.length > 0) {
+    throw new ConflictError("No se puede eliminar el producto porque está asociado a ventas");
+  }
+
+  // Verificar si el producto está en compras
+  const purchasesWithProduct = await db.select().from(purchasesDetail).where(eq(purchasesDetail.productId, productId)).limit(1);
+  if (purchasesWithProduct.length > 0) {
+    throw new ConflictError("No se puede eliminar el producto porque está asociado a compras");
+  }
+
+  // Verificar si el producto está en traslados
+  const transfersWithProduct = await db.select().from(transfersDetail).where(eq(transfersDetail.productId, productId)).limit(1);
+  if (transfersWithProduct.length > 0) {
+    throw new ConflictError("No se puede eliminar el producto porque está asociado a traslados");
+  }
+
+  // Verificar si el producto está en inventario
+  const inventoryWithProduct = await db.select().from(inventory).where(eq(inventory.productId, productId)).limit(1);
+  if (inventoryWithProduct.length > 0) {
+    throw new ConflictError("No se puede eliminar el producto porque tiene registros en inventario");
+  }
+
+  // Verificar si el producto está en movimientos de inventario
+  const movementsWithProduct = await db.select().from(inventoryMovements).where(eq(inventoryMovements.productId, productId)).limit(1);
+  if (movementsWithProduct.length > 0) {
+    throw new ConflictError("No se puede eliminar el producto porque tiene movimientos de inventario");
+  }
+
+  // Si pasa todas las validaciones, eliminar las imágenes y el producto
+  await deleteProductImages(productId);
+  await db.delete(products).where(eq(products.id, productId));
+  
+  return { message: "Producto eliminado exitosamente" };
 }
 

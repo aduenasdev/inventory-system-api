@@ -37,3 +37,9 @@ export const updateProductSchema = z.object({
     productId: z.string(),
   }),
 });
+
+export const deleteProductSchema = z.object({
+  params: z.object({
+    productId: z.string().regex(/^\d+$/, { message: "productId debe ser un número positivo" }),
+  }),
+});
