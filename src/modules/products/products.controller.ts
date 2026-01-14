@@ -18,7 +18,7 @@ import {
 // Retorna la imagen grande del producto
 export async function getProductImageHandler(req: Request, res: Response) {
   const { productId } = req.params;
-  const imagePath = path.join(__dirname, "..", "..", "..", "uploads", "products", `product_${productId}.webp`);
+  const imagePath = path.join(__dirname, "..", "..", "..", "uploads", "products", `${productId}.webp`);
   if (fs.existsSync(imagePath)) {
     res.sendFile(imagePath);
   } else {
@@ -29,7 +29,7 @@ export async function getProductImageHandler(req: Request, res: Response) {
 // Retorna la miniatura del producto
 export async function getProductThumbnailHandler(req: Request, res: Response) {
   const { productId } = req.params;
-  const thumbPath = path.join(__dirname, "..", "..", "..", "uploads", "products", `product_${productId}_thumb.webp`);
+  const thumbPath = path.join(__dirname, "..", "..", "..", "uploads", "products", `${productId}_thumb.webp`);
   if (fs.existsSync(thumbPath)) {
     res.sendFile(thumbPath);
   } else {

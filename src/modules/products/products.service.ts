@@ -110,7 +110,7 @@ export async function getAllProducts(params: {
 
     // Agregar URLs de imágenes en vez de base64 para mejor performance
     const itemsWithUrls = await Promise.all(items.map(async (product) => {
-      const thumbPath = path.join(__dirname, "..", "..", "..", "uploads", "products", `product_${product.id}_thumb.webp`);
+      const thumbPath = path.join(__dirname, "..", "..", "..", "uploads", "products", `${product.id}_thumb.webp`);
       let hasThumb = false;
       try {
         await fs.access(thumbPath);
@@ -121,8 +121,8 @@ export async function getAllProducts(params: {
       
       return {
         ...product,
-        thumbUrl: hasThumb ? `/api/products/thumb/${product.id}.webp` : null,
-        imageUrl: hasThumb ? `/api/products/image/${product.id}.webp` : null,
+        thumbUrl: hasThumb ? `/products/thumb/${product.id}.webp` : null,
+        imageUrl: hasThumb ? `/products/image/${product.id}.webp` : null,
       };
     }));
     log.info({ total, page, pageSize, name, categoryId }, "Consulta paginada de productos ejecutada");
