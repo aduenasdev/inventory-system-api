@@ -47,8 +47,18 @@ app.use(morgan("dev"));
 // Rate limiting general (aplica a toda la API excepto /health)
 app.use(apiLimiter);
 
-// Servir imágenes estáticas con autenticación
-app.use("/uploads", authMiddleware, express.static(path.join(process.cwd(), "uploads"), {
+// Servir imágenes estáticas con autenticación y CORS headers
+app.use("/uploads", authMiddleware, (req, res, next) => {
+  // Configurar headers CORS para las imágenes
+  const origin = req.headers.origin;
+  if (allowedOrigins === "*" || (Array.isArray(allowedOrigins) && origin && allowedOrigins.includes(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  }
+  next();
+}, express.static(path.join(process.cwd(), "uploads"), {
   maxAge: "1y", // Cache 1 año
   etag: true,
   lastModified: true,
