@@ -58,7 +58,7 @@ export class TransfersService {
 
     // Crear traslado
     const [transfer] = (await db.insert(transfers).values({
-      date: normalizeBusinessDate(data.date),
+      date: new Date(normalizeBusinessDate(data.date)),
       originWarehouseId: data.originWarehouseId,
       destinationWarehouseId: data.destinationWarehouseId,
       status: "PENDING",

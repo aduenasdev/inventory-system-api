@@ -122,7 +122,7 @@ export class PurchasesService {
       invoiceNumber,
       supplierName: data.supplierName || null,
       supplierPhone: data.supplierPhone || null,
-      date: normalizeBusinessDate(data.date),
+      date: new Date(normalizeBusinessDate(data.date)),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",

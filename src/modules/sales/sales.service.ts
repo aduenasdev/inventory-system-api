@@ -155,7 +155,7 @@ export class SalesService {
       invoiceNumber,
       customerName: data.customerName || null,
       customerPhone: data.customerPhone || null,
-      date: normalizeBusinessDate(data.date),
+      date: new Date(normalizeBusinessDate(data.date)),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",

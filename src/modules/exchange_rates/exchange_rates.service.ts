@@ -44,7 +44,7 @@ export async function createExchangeRate(data: {
     fromCurrencyId: fromCurrencyId,
     toCurrencyId: data.toCurrencyId,
     rate: data.rate.toString(),
-    date: normalizedDate,
+    date: new Date(normalizedDate),
   });
   return { id: insert.insertId, fromCurrencyId, toCurrencyId: data.toCurrencyId, rate: data.rate, date: normalizedDate };
 }
@@ -74,7 +74,7 @@ export async function getAllExchangeRates(startDate?: string, endDate?: string) 
     ORDER BY er.date DESC
   `;
 
-  const [rows] = await db.execute(query);
+  const rows = await db.execute(query);
   
   // Transformar el resultado para incluir objetos de monedas completos
   return (rows as any[]).map(row => ({
@@ -223,7 +223,7 @@ export async function createBatchExchangeRates(data: {
         fromCurrencyId,
         toCurrencyId: rateData.toCurrencyId,
         rate: rateData.rate.toString(),
-        date: normalizedDate,
+        date: new Date(normalizedDate),
       });
       
       results.push({
