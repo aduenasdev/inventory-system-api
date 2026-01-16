@@ -44,7 +44,7 @@ export async function createExchangeRate(data: {
     fromCurrencyId: fromCurrencyId,
     toCurrencyId: data.toCurrencyId,
     rate: data.rate.toString(),
-    date: normalizedDate,
+    date: new Date(normalizedDate + "T12:00:00Z"),
   });
   return { id: insert.insertId, fromCurrencyId, toCurrencyId: data.toCurrencyId, rate: data.rate, date: normalizedDate };
 }
@@ -223,7 +223,7 @@ export async function createBatchExchangeRates(data: {
         fromCurrencyId,
         toCurrencyId: rateData.toCurrencyId,
         rate: rateData.rate.toString(),
-        date: normalizedDate,
+        date: new Date(normalizedDate + "T12:00:00Z"),
       });
       
       results.push({
