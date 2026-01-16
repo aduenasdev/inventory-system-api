@@ -7,7 +7,7 @@ import { Request, Response } from "express";
  */
 export const authLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 5, // 5 intentos por ventana
+  max: 10, // 10 intentos por ventana
   message: {
     message: "Demasiados intentos de autenticación. Intente de nuevo en 1 minuto.",
   },

@@ -26,7 +26,9 @@ import { authMiddleware } from "./middlewares/auth.middleware";
 const app = express();
 
 // Security middlewares
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 
 // CORS configurado
 const allowedOrigins = env.ALLOWED_ORIGINS?.split(",") || "*";
