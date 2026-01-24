@@ -10,12 +10,19 @@ import { userWarehouses } from "../../db/schema/user_warehouses";
 import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
-import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
+import { paymentTypes } from "../../db/schema/payment_types";
+import { eq, and, sql, desc, gte, lte, inArray, or, aliasedTable } from "drizzle-orm";
 import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
 const BASE_CURRENCY_ID = 1;
+
+// Alias para usuarios (múltiples joins a la misma tabla)
+const createdByUser = aliasedTable(users, "created_by_user");
+const acceptedByUser = aliasedTable(users, "accepted_by_user");
+const cancelledByUser = aliasedTable(users, "cancelled_by_user");
+const paidByUser = aliasedTable(users, "paid_by_user");
 
 export class SalesService {
   // Generar número de factura
@@ -43,8 +50,6 @@ export class SalesService {
     if (fromCurrencyId === toCurrencyId) {
       return null;
     }
-
-    const BASE_CURRENCY_ID = 1; // CUP
 
     // Caso 1: Buscamos X → CUP (necesitamos inverso de CUP → X)
     if (toCurrencyId === BASE_CURRENCY_ID) {
@@ -92,7 +97,6 @@ export class SalesService {
     }
 
     // Caso 3: X → Y (ambas diferentes de CUP) - convertir via CUP
-    // X → CUP → Y = (1/rate_CUP_X) * rate_CUP_Y
     const rateXtoCUP: number | null = await this.getExchangeRate(fromCurrencyId, BASE_CURRENCY_ID, date);
     const rateCUPtoY: number | null = await this.getExchangeRate(BASE_CURRENCY_ID, toCurrencyId, date);
     
@@ -105,7 +109,7 @@ export class SalesService {
     );
   }
 
-  // Verificar stock disponible (ahora desde lotes)
+  // Verificar stock disponible (desde lotes)
   private async checkStock(warehouseId: number, productId: number, quantity: number) {
     const availableStock = await lotService.getStockFromLots(warehouseId, productId);
 
@@ -124,10 +128,10 @@ export class SalesService {
   async createSale(data: {
     customerName?: string;
     customerPhone?: string;
-    date: string;
     warehouseId: number;
     currencyId: number;
     notes?: string;
+    autoApprove?: boolean;
     details: Array<{
       productId: number;
       quantity: number;
@@ -135,7 +139,11 @@ export class SalesService {
       paymentTypeId: number;
     }>;
     userId: number;
+    userPermissions: string[];
   }) {
+    // Verificar si puede auto-aprobar
+    const canAutoApprove = data.autoApprove && data.userPermissions.includes("sales.accept");
+
     // Validar stock para todos los productos
     for (const detail of data.details) {
       await this.checkStock(data.warehouseId, detail.productId, detail.quantity);
@@ -143,7 +151,9 @@ export class SalesService {
 
     // Generar número de factura
     const invoiceNumber = await this.generateInvoiceNumber();
-    const normalizedDate = normalizeBusinessDate(data.date);
+    
+    // Usar fecha actual del servidor (zona horaria local)
+    const normalizedDate = getTodayDateString();
 
     // Procesar conversión de monedas
     let subtotal = 0;
@@ -157,6 +167,16 @@ export class SalesService {
 
         if (!product) {
           throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
+        }
+
+        // Validar paymentType
+        const [paymentType] = await db
+          .select()
+          .from(paymentTypes)
+          .where(eq(paymentTypes.id, detail.paymentTypeId));
+
+        if (!paymentType) {
+          throw new NotFoundError(`Tipo de pago con ID ${detail.paymentTypeId} no encontrado`);
         }
 
         const productCurrencyId = product.currencyId;
@@ -188,19 +208,21 @@ export class SalesService {
       })
     );
 
-    // Crear factura
+    // Crear factura (PENDING o APPROVED según autoApprove)
     const [sale] = (await db.insert(sales).values({
       invoiceNumber,
       customerName: data.customerName || null,
       customerPhone: data.customerPhone || null,
-      date: new Date(normalizedDate),
+      date: sql`${normalizedDate}`,
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
-      status: "PENDING",
+      status: canAutoApprove ? "APPROVED" : "PENDING",
       subtotal: subtotal.toString(),
       total: subtotal.toString(),
       notes: data.notes || null,
       createdBy: data.userId,
+      acceptedBy: canAutoApprove ? data.userId : null,
+      acceptedAt: canAutoApprove ? new Date() : null,
     })) as any;
 
     const saleId = sale.insertId;
@@ -213,71 +235,23 @@ export class SalesService {
       }))
     );
 
-    return { id: saleId, invoiceNumber, subtotal, total: subtotal };
-  }
-
-  // Obtener todas las ventas
-  async getAllSales() {
-    return await db.select().from(sales).orderBy(desc(sales.createdAt));
-  }
-
-  // Obtener venta por ID con detalles
-  async getSaleById(id: number) {
-    const [sale] = await db
-      .select()
-      .from(sales)
-      .where(eq(sales.id, id));
-
-    if (!sale) {
-      throw new NotFoundError("Factura de venta no encontrada");
+    // Si es auto-aprobada, consumir lotes inmediatamente
+    if (canAutoApprove) {
+      const saleData = await this.getSaleByIdInternal(saleId);
+      await this.processApprovedSale(saleData);
     }
 
-    const details = await db
-      .select({
-        id: salesDetail.id,
-        productId: salesDetail.productId,
-        productName: products.name,
-        quantity: salesDetail.quantity,
-        unitPrice: salesDetail.unitPrice,
-        paymentTypeId: salesDetail.paymentTypeId,
-        originalCurrencyId: salesDetail.originalCurrencyId,
-        exchangeRateUsed: salesDetail.exchangeRateUsed,
-        convertedUnitPrice: salesDetail.convertedUnitPrice,
-        subtotal: salesDetail.subtotal,
-        realCost: salesDetail.realCost,
-        margin: salesDetail.margin,
-      })
-      .from(salesDetail)
-      .innerJoin(products, eq(salesDetail.productId, products.id))
-      .where(eq(salesDetail.saleId, id));
-
-    return { ...sale, details };
+    return { 
+      id: saleId, 
+      invoiceNumber, 
+      subtotal, 
+      total: subtotal,
+      status: canAutoApprove ? "APPROVED" : "PENDING"
+    };
   }
 
-  // Aceptar factura de venta (consume lotes FIFO y calcula costo real)
-  async acceptSale(id: number, userId: number) {
-    const sale = await this.getSaleById(id);
-
-    if (sale.status !== "PENDING") {
-      throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
-    }
-
-    // Revalidar stock al momento de aceptar
-    for (const detail of sale.details) {
-      await this.checkStock(sale.warehouseId, detail.productId, parseFloat(detail.quantity));
-    }
-
-    // Actualizar estado de factura
-    await db
-      .update(sales)
-      .set({
-        status: "APPROVED",
-        acceptedBy: userId,
-        acceptedAt: new Date(),
-      })
-      .where(eq(sales.id, id));
-
-    // Consumir lotes FIFO y calcular costo real para cada línea
+  // Procesar venta aprobada (consumir lotes y calcular costos)
+  private async processApprovedSale(sale: any) {
     for (const detail of sale.details) {
       const quantity = parseFloat(detail.quantity);
       const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
@@ -316,13 +290,227 @@ export class SalesService {
         reason: `Salida por venta ${sale.invoiceNumber}. Costo real: ${realCost.toFixed(4)}, Margen: ${margin.toFixed(4)}`,
       });
     }
+  }
+
+  // Query base con JOINs para obtener nombres de usuarios, almacén y moneda (para listados)
+  private async getSalesWithUserNames(whereCondition: any) {
+    return await db
+      .select({
+        id: sales.id,
+        invoiceNumber: sales.invoiceNumber,
+        customerName: sales.customerName,
+        customerPhone: sales.customerPhone,
+        date: sales.date,
+        warehouseId: sales.warehouseId,
+        warehouseName: warehouses.name,
+        currencyId: sales.currencyId,
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+        status: sales.status,
+        cancellationReason: sales.cancellationReason,
+        subtotal: sales.subtotal,
+        total: sales.total,
+        notes: sales.notes,
+        isPaid: sales.isPaid,
+        paidBy: sales.paidBy,
+        paidByName: sql<string>`CONCAT(${paidByUser.nombre}, ' ', COALESCE(${paidByUser.apellido}, ''))`.as('paid_by_name'),
+        paidAt: sales.paidAt,
+        createdBy: sales.createdBy,
+        createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+        acceptedBy: sales.acceptedBy,
+        acceptedByName: sql<string>`CONCAT(${acceptedByUser.nombre}, ' ', COALESCE(${acceptedByUser.apellido}, ''))`.as('accepted_by_name'),
+        cancelledBy: sales.cancelledBy,
+        cancelledByName: sql<string>`CONCAT(${cancelledByUser.nombre}, ' ', COALESCE(${cancelledByUser.apellido}, ''))`.as('cancelled_by_name'),
+        createdAt: sales.createdAt,
+        updatedAt: sales.updatedAt,
+        acceptedAt: sales.acceptedAt,
+        cancelledAt: sales.cancelledAt,
+      })
+      .from(sales)
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
+      .innerJoin(createdByUser, eq(sales.createdBy, createdByUser.id))
+      .leftJoin(acceptedByUser, eq(sales.acceptedBy, acceptedByUser.id))
+      .leftJoin(cancelledByUser, eq(sales.cancelledBy, cancelledByUser.id))
+      .leftJoin(paidByUser, eq(sales.paidBy, paidByUser.id))
+      .where(whereCondition)
+      .orderBy(desc(sales.createdAt));
+  }
+
+  // Obtener ventas filtradas según permisos del usuario y rango de fechas
+  async getAllSales(
+    userId: number,
+    userPermissions: string[],
+    startDate: string,
+    endDate: string,
+    warehouseId?: number,
+    status?: 'PENDING' | 'APPROVED' | 'CANCELLED',
+    isPaid?: boolean
+  ) {
+    const hasReadAll = userPermissions.includes("sales.read");
+    const hasCancel = userPermissions.includes("sales.cancel");
+    const hasAccept = userPermissions.includes("sales.accept");
+    const hasCreate = userPermissions.includes("sales.create");
+    const hasPaid = userPermissions.includes("sales.paid");
+
+    // Condiciones base
+    const baseConditions: any[] = [
+      gte(sales.date, sql`${startDate}`),
+      lte(sales.date, sql`${endDate}`)
+    ];
+
+    // Filtro opcional por almacén
+    if (warehouseId) {
+      baseConditions.push(eq(sales.warehouseId, warehouseId));
+    }
+
+    // Filtro opcional por estado (solo si tiene permiso para ver ese estado)
+    if (status) {
+      baseConditions.push(eq(sales.status, status));
+    }
+
+    // Filtro por isPaid (solo si tiene permiso sales.paid)
+    if (isPaid !== undefined && hasPaid) {
+      baseConditions.push(eq(sales.isPaid, isPaid));
+    }
+
+    const baseCondition = and(...baseConditions);
+
+    // Si tiene sales.read → ve TODAS (dentro del rango y filtros)
+    if (hasReadAll) {
+      return await this.getSalesWithUserNames(baseCondition);
+    }
+
+    // Construir condiciones según permisos
+    const permissionConditions: any[] = [];
+
+    // Si tiene sales.cancel → ve PENDING + APPROVED
+    if (hasCancel) {
+      permissionConditions.push(
+        inArray(sales.status, ["PENDING", "APPROVED"])
+      );
+    }
+
+    // Si tiene sales.accept → ve PENDING
+    if (hasAccept && !hasCancel) {
+      permissionConditions.push(eq(sales.status, "PENDING"));
+    }
+
+    // Si solo tiene sales.create → ve solo las suyas
+    if (hasCreate) {
+      permissionConditions.push(eq(sales.createdBy, userId));
+    }
+
+    // Si no tiene ningún permiso relevante, retornar vacío
+    if (permissionConditions.length === 0) {
+      return [];
+    }
+
+    // Combinar: (permisos OR) AND (condiciones base)
+    return await this.getSalesWithUserNames(
+      and(baseCondition, or(...permissionConditions))
+    );
+  }
+
+  // Obtener venta por ID (uso interno para operaciones)
+  private async getSaleByIdInternal(id: number) {
+    const [sale] = await db
+      .select()
+      .from(sales)
+      .where(eq(sales.id, id));
+
+    if (!sale) {
+      throw new NotFoundError("Factura de venta no encontrada");
+    }
+
+    const details = await db
+      .select({
+        id: salesDetail.id,
+        productId: salesDetail.productId,
+        productName: products.name,
+        quantity: salesDetail.quantity,
+        unitPrice: salesDetail.unitPrice,
+        paymentTypeId: salesDetail.paymentTypeId,
+        originalCurrencyId: salesDetail.originalCurrencyId,
+        exchangeRateUsed: salesDetail.exchangeRateUsed,
+        convertedUnitPrice: salesDetail.convertedUnitPrice,
+        subtotal: salesDetail.subtotal,
+        realCost: salesDetail.realCost,
+        margin: salesDetail.margin,
+      })
+      .from(salesDetail)
+      .innerJoin(products, eq(salesDetail.productId, products.id))
+      .where(eq(salesDetail.saleId, id));
+
+    return { ...sale, details };
+  }
+
+  // Obtener venta por ID con detalles (para API externa, con nombres de usuarios)
+  async getSaleById(id: number) {
+    const results = await this.getSalesWithUserNames(eq(sales.id, id));
+    
+    const sale = results[0];
+
+    if (!sale) {
+      throw new NotFoundError("Factura de venta no encontrada");
+    }
+
+    const details = await db
+      .select({
+        id: salesDetail.id,
+        productId: salesDetail.productId,
+        productName: products.name,
+        quantity: salesDetail.quantity,
+        unitPrice: salesDetail.unitPrice,
+        paymentTypeId: salesDetail.paymentTypeId,
+        paymentTypeName: paymentTypes.type,
+        originalCurrencyId: salesDetail.originalCurrencyId,
+        exchangeRateUsed: salesDetail.exchangeRateUsed,
+        convertedUnitPrice: salesDetail.convertedUnitPrice,
+        subtotal: salesDetail.subtotal,
+        realCost: salesDetail.realCost,
+        margin: salesDetail.margin,
+      })
+      .from(salesDetail)
+      .innerJoin(products, eq(salesDetail.productId, products.id))
+      .innerJoin(paymentTypes, eq(salesDetail.paymentTypeId, paymentTypes.id))
+      .where(eq(salesDetail.saleId, id));
+
+    return Object.assign({}, sale, { details });
+  }
+
+  // Aceptar factura de venta (consume lotes FIFO y calcula costo real)
+  async acceptSale(id: number, userId: number) {
+    const sale = await this.getSaleByIdInternal(id);
+
+    if (sale.status !== "PENDING") {
+      throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
+    }
+
+    // Revalidar stock al momento de aceptar
+    for (const detail of sale.details) {
+      await this.checkStock(sale.warehouseId, detail.productId, parseFloat(detail.quantity));
+    }
+
+    // Actualizar estado de factura
+    await db
+      .update(sales)
+      .set({
+        status: "APPROVED",
+        acceptedBy: userId,
+        acceptedAt: new Date(),
+      })
+      .where(eq(sales.id, id));
+
+    // Procesar la venta (consumir lotes y calcular costos)
+    await this.processApprovedSale(sale);
 
     return { message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO." };
   }
 
   // Cancelar factura de venta
   async cancelSale(id: number, cancellationReason: string, userId: number) {
-    const sale = await this.getSaleById(id);
+    const sale = await this.getSaleByIdInternal(id);
 
     if (sale.status === "CANCELLED") {
       throw new ConflictError("La factura ya está cancelada");
@@ -367,7 +555,6 @@ export class SalesService {
         // Por cada consumo, crear un lote de devolución con el mismo costo
         for (const consumption of consumptions) {
           const quantity = parseFloat(consumption.quantity);
-          const unitCostBase = parseFloat(consumption.unitCost);
 
           // Crear lote de devolución
           await lotService.createLot({
@@ -399,17 +586,44 @@ export class SalesService {
     return { message: "Factura cancelada exitosamente" };
   }
 
+  // Marcar venta como pagada/cobrada (no afecta inventario)
+  async markSaleAsPaid(id: number, userId: number) {
+    const [sale] = await db
+      .select()
+      .from(sales)
+      .where(eq(sales.id, id));
+
+    if (!sale) {
+      throw new NotFoundError("Factura de venta no encontrada");
+    }
+
+    if (sale.status !== "APPROVED") {
+      throw new ValidationError("Solo se pueden marcar como pagadas facturas en estado APPROVED");
+    }
+
+    if (sale.isPaid) {
+      throw new ConflictError("La factura ya está marcada como pagada");
+    }
+
+    await db
+      .update(sales)
+      .set({
+        isPaid: true,
+        paidBy: userId,
+        paidAt: new Date(),
+      })
+      .where(eq(sales.id, id));
+
+    return { message: "Factura marcada como pagada exitosamente" };
+  }
+
   // Reporte de ventas con margen real
-  async getSalesMarginReport(startDate?: string, endDate?: string, warehouseId?: number) {
-    const conditions: any[] = [eq(sales.status, "APPROVED")];
-
-    if (startDate) {
-      conditions.push(gte(sales.date, sql`${startDate}`));
-    }
-
-    if (endDate) {
-      conditions.push(lte(sales.date, sql`${endDate}`));
-    }
+  async getSalesMarginReport(startDate: string, endDate: string, warehouseId?: number) {
+    const conditions: any[] = [
+      eq(sales.status, "APPROVED"),
+      gte(sales.date, sql`${startDate}`),
+      lte(sales.date, sql`${endDate}`)
+    ];
 
     if (warehouseId) {
       conditions.push(eq(sales.warehouseId, warehouseId));
@@ -421,10 +635,13 @@ export class SalesService {
         invoiceNumber: sales.invoiceNumber,
         date: sales.date,
         warehouseId: sales.warehouseId,
+        warehouseName: warehouses.name,
         total: sales.total,
         customerName: sales.customerName,
+        isPaid: sales.isPaid,
       })
       .from(sales)
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
       .where(and(...conditions))
       .orderBy(desc(sales.date));
 
@@ -475,7 +692,7 @@ export class SalesService {
 
   // Obtener consumos de lotes de una venta
   async getSaleLotConsumptions(saleId: number) {
-    const sale = await this.getSaleById(saleId);
+    const sale = await this.getSaleByIdInternal(saleId);
     
     const allConsumptions = [];
     
@@ -517,22 +734,14 @@ export class SalesService {
   }
 
   // Reporte de facturas canceladas
-  async getCancelledSalesReport(startDate?: string, endDate?: string) {
-    const conditions = [eq(sales.status, "CANCELLED")];
+  async getCancelledSalesReport(startDate: string, endDate: string) {
+    const conditions = [
+      eq(sales.status, "CANCELLED"),
+      gte(sales.cancelledAt, sql`${startDate}`),
+      lte(sales.cancelledAt, sql`${endDate}`)
+    ];
 
-    if (startDate) {
-      conditions.push(gte(sales.cancelledAt, sql`${startDate}`));
-    }
-
-    if (endDate) {
-      conditions.push(lte(sales.cancelledAt, sql`${endDate}`));
-    }
-
-    return await db
-      .select()
-      .from(sales)
-      .where(and(...conditions))
-      .orderBy(desc(sales.cancelledAt));
+    return await this.getSalesWithUserNames(and(...conditions));
   }
 
   // Reporte de ventas diarias
@@ -550,6 +759,7 @@ export class SalesService {
         currencyCode: currencies.code,
         total: sales.total,
         status: sales.status,
+        isPaid: sales.isPaid,
         createdAt: sales.createdAt,
       })
       .from(sales)
@@ -566,6 +776,8 @@ export class SalesService {
     // Calcular totales
     const totalSales = dailySales.length;
     const totalRevenue = dailySales.reduce((sum, s) => sum + parseFloat(s.total), 0);
+    const paidSales = dailySales.filter(s => s.isPaid).length;
+    const unpaidSales = dailySales.filter(s => !s.isPaid).length;
 
     return {
       date: normalizedDate,
@@ -573,6 +785,8 @@ export class SalesService {
       summary: {
         totalSales,
         totalRevenue: totalRevenue.toFixed(4),
+        paidSales,
+        unpaidSales,
       },
     };
   }
@@ -598,7 +812,7 @@ export class SalesService {
         endDate,
         targetCurrency: null,
         sales: [],
-        summary: { totalSales: 0, totalRevenue: "0.0000" },
+        summary: { totalSales: 0, totalRevenue: "0.0000", paidSales: 0, unpaidSales: 0 },
       };
     }
 
@@ -618,6 +832,7 @@ export class SalesService {
         currencyCode: currencies.code,
         total: sales.total,
         status: sales.status,
+        isPaid: sales.isPaid,
       })
       .from(sales)
       .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
@@ -657,6 +872,9 @@ export class SalesService {
       })
     );
 
+    const paidSales = periodSales.filter(s => s.isPaid).length;
+    const unpaidSales = periodSales.filter(s => !s.isPaid).length;
+
     return {
       startDate,
       endDate,
@@ -665,6 +883,8 @@ export class SalesService {
       summary: {
         totalSales: periodSales.length,
         totalRevenue: totalRevenueConverted.toFixed(4),
+        paidSales,
+        unpaidSales,
       },
     };
   }

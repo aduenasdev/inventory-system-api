@@ -1,4 +1,4 @@
-import { mysqlTable, serial, int, varchar, date, decimal, text, timestamp, mysqlEnum } from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, int, varchar, date, decimal, text, timestamp, mysqlEnum, boolean } from "drizzle-orm/mysql-core";
 import { warehouses } from "./warehouses";
 import { currencies } from "./currencies";
 import { users } from "./users";
@@ -16,6 +16,11 @@ export const sales = mysqlTable("sales", {
   subtotal: decimal("subtotal", { precision: 18, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 18, scale: 2 }).notNull().default("0"),
   notes: text("notes"),
+  
+  // Estado de pago (no afecta inventario, solo informativo)
+  isPaid: boolean("is_paid").notNull().default(false),
+  paidBy: int("paid_by").references(() => users.id),
+  paidAt: timestamp("paid_at"),
   
   // Auditoría
   createdBy: int("created_by").notNull().references(() => users.id),

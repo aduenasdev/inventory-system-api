@@ -386,6 +386,9 @@ async function main() {
       total DECIMAL(18, 4) NOT NULL,
       notes TEXT,
       cancellation_reason TEXT,
+      is_paid BOOLEAN NOT NULL DEFAULT FALSE,
+      paid_by INT,
+      paid_at TIMESTAMP NULL,
       created_by INT NOT NULL,
       accepted_by INT,
       cancelled_by INT,
@@ -397,7 +400,8 @@ async function main() {
       FOREIGN KEY (currency_id) REFERENCES currencies(id),
       FOREIGN KEY (created_by) REFERENCES users(id),
       FOREIGN KEY (accepted_by) REFERENCES users(id),
-      FOREIGN KEY (cancelled_by) REFERENCES users(id)
+      FOREIGN KEY (cancelled_by) REFERENCES users(id),
+      FOREIGN KEY (paid_by) REFERENCES users(id)
     )
   `);
 
@@ -561,6 +565,7 @@ async function main() {
     { name: 'sales.create', description: 'Crear facturas de venta', group_name: 'sales' },
     { name: 'sales.accept', description: 'Aceptar facturas de venta', group_name: 'sales' },
     { name: 'sales.cancel', description: 'Cancelar facturas de venta', group_name: 'sales' },
+    { name: 'sales.paid', description: 'Marcar facturas de venta como pagadas/cobradas', group_name: 'sales' },
 
     // Traslados
     { name: 'transfers.read', description: 'Leer traslados', group_name: 'transfers' },
