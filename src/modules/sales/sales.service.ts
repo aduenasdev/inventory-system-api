@@ -353,15 +353,36 @@ export class SalesService {
     const hasCreate = userPermissions.includes("sales.create");
     const hasPaid = userPermissions.includes("sales.paid");
 
+    // Obtener almacenes del usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
+
+    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    if (allowedWarehouseIds.length === 0) {
+      return [];
+    }
+
     // Condiciones base
     const baseConditions: any[] = [
       gte(sales.date, sql`${startDate}`),
       lte(sales.date, sql`${endDate}`)
     ];
 
-    // Filtro opcional por almacén
+    // Filtro por almacén: si especifica uno, verificar que tenga acceso
+    // Si no especifica, filtrar por todos sus almacenes
     if (warehouseId) {
+      // Verificar que el usuario tenga acceso al almacén solicitado
+      if (!allowedWarehouseIds.includes(warehouseId)) {
+        return []; // No tiene acceso a ese almacén
+      }
       baseConditions.push(eq(sales.warehouseId, warehouseId));
+    } else {
+      // Sin filtro específico: mostrar de todos sus almacenes
+      baseConditions.push(inArray(sales.warehouseId, allowedWarehouseIds));
     }
 
     // Filtro opcional por estado (solo si tiene permiso para ver ese estado)
@@ -376,7 +397,7 @@ export class SalesService {
 
     const baseCondition = and(...baseConditions);
 
-    // Si tiene sales.read → ve TODAS (dentro del rango y filtros)
+    // Si tiene sales.read → ve TODAS (dentro del rango, almacenes y filtros)
     if (hasReadAll) {
       return await this.getSalesWithUserNames(baseCondition);
     }
@@ -406,7 +427,7 @@ export class SalesService {
       return [];
     }
 
-    // Combinar: (permisos OR) AND (condiciones base)
+    // Combinar: (permisos OR) AND (condiciones base incluyendo almacenes)
     return await this.getSalesWithUserNames(
       and(baseCondition, or(...permissionConditions))
     );
