@@ -5,13 +5,21 @@ import { inventoryMovements } from "../../db/schema/inventory_movements";
 import { inventoryLots } from "../../db/schema/inventory_lots";
 import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
-import { eq, and, sql, desc, gte, lte, or, inArray } from "drizzle-orm";
+import { users } from "../../db/schema/users";
+import { warehouses } from "../../db/schema/warehouses";
+import { currencies } from "../../db/schema/currencies";
+import { eq, and, sql, desc, gte, lte, or, inArray, aliasedTable } from "drizzle-orm";
 import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
 // ID de la moneda base (CUP)
 const BASE_CURRENCY_ID = 1;
+
+// Alias para usuarios (múltiples joins a la misma tabla)
+const createdByUser = aliasedTable(users, "created_by_user");
+const acceptedByUser = aliasedTable(users, "accepted_by_user");
+const cancelledByUser = aliasedTable(users, "cancelled_by_user");
 
 export class PurchasesService {
   // Generar número de factura auto-incremental
@@ -218,6 +226,46 @@ export class PurchasesService {
     };
   }
 
+  // Query base con JOINs para obtener nombres de usuarios, almacén y moneda (para listados)
+  private async getPurchasesWithUserNames(whereCondition: any) {
+    return await db
+      .select({
+        id: purchases.id,
+        invoiceNumber: purchases.invoiceNumber,
+        supplierName: purchases.supplierName,
+        supplierPhone: purchases.supplierPhone,
+        date: purchases.date,
+        warehouseId: purchases.warehouseId,
+        warehouseName: warehouses.name,
+        currencyId: purchases.currencyId,
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+        status: purchases.status,
+        cancellationReason: purchases.cancellationReason,
+        subtotal: purchases.subtotal,
+        total: purchases.total,
+        notes: purchases.notes,
+        createdBy: purchases.createdBy,
+        createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+        acceptedBy: purchases.acceptedBy,
+        acceptedByName: sql<string>`CONCAT(${acceptedByUser.nombre}, ' ', COALESCE(${acceptedByUser.apellido}, ''))`.as('accepted_by_name'),
+        cancelledBy: purchases.cancelledBy,
+        cancelledByName: sql<string>`CONCAT(${cancelledByUser.nombre}, ' ', COALESCE(${cancelledByUser.apellido}, ''))`.as('cancelled_by_name'),
+        createdAt: purchases.createdAt,
+        updatedAt: purchases.updatedAt,
+        acceptedAt: purchases.acceptedAt,
+        cancelledAt: purchases.cancelledAt,
+      })
+      .from(purchases)
+      .innerJoin(warehouses, eq(purchases.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(purchases.currencyId, currencies.id))
+      .innerJoin(createdByUser, eq(purchases.createdBy, createdByUser.id))
+      .leftJoin(acceptedByUser, eq(purchases.acceptedBy, acceptedByUser.id))
+      .leftJoin(cancelledByUser, eq(purchases.cancelledBy, cancelledByUser.id))
+      .where(whereCondition)
+      .orderBy(desc(purchases.createdAt));
+  }
+
   // Obtener compras filtradas según permisos del usuario y rango de fechas
   async getAllPurchases(
     userId: number, 
@@ -238,11 +286,7 @@ export class PurchasesService {
 
     // Si tiene purchases.read → ve TODAS (dentro del rango)
     if (hasReadAll) {
-      return await db
-        .select()
-        .from(purchases)
-        .where(dateCondition)
-        .orderBy(desc(purchases.createdAt));
+      return await this.getPurchasesWithUserNames(dateCondition);
     }
 
     // Construir condiciones según permisos
@@ -271,15 +315,13 @@ export class PurchasesService {
     }
 
     // Combinar: (permisos OR) AND (rango de fechas)
-    return await db
-      .select()
-      .from(purchases)
-      .where(and(dateCondition, or(...permissionConditions)))
-      .orderBy(desc(purchases.createdAt));
+    return await this.getPurchasesWithUserNames(
+      and(dateCondition, or(...permissionConditions))
+    );
   }
 
-  // Obtener compra por ID con detalles
-  async getPurchaseById(id: number) {
+  // Obtener compra por ID (uso interno para operaciones)
+  private async getPurchaseByIdInternal(id: number) {
     const [purchase] = await db
       .select()
       .from(purchases)
@@ -309,9 +351,39 @@ export class PurchasesService {
     return { ...purchase, details };
   }
 
+  // Obtener compra por ID con detalles (para API externa, con nombres de usuarios)
+  async getPurchaseById(id: number) {
+    const results = await this.getPurchasesWithUserNames(eq(purchases.id, id));
+    
+    const purchase = results[0];
+
+    if (!purchase) {
+      throw new NotFoundError("Factura de compra no encontrada");
+    }
+
+    const details = await db
+      .select({
+        id: purchasesDetail.id,
+        productId: purchasesDetail.productId,
+        productName: products.name,
+        quantity: purchasesDetail.quantity,
+        unitCost: purchasesDetail.unitCost,
+        originalCurrencyId: purchasesDetail.originalCurrencyId,
+        exchangeRateUsed: purchasesDetail.exchangeRateUsed,
+        convertedUnitCost: purchasesDetail.convertedUnitCost,
+        subtotal: purchasesDetail.subtotal,
+        lotId: purchasesDetail.lotId,
+      })
+      .from(purchasesDetail)
+      .innerJoin(products, eq(purchasesDetail.productId, products.id))
+      .where(eq(purchasesDetail.purchaseId, id));
+
+    return Object.assign({}, purchase, { details });
+  }
+
   // Aceptar factura de compra (genera lotes y movimientos)
   async acceptPurchase(id: number, userId: number) {
-    const purchase = await this.getPurchaseById(id);
+    const purchase = await this.getPurchaseByIdInternal(id);
 
     if (purchase.status !== "PENDING") {
       throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
@@ -373,7 +445,7 @@ export class PurchasesService {
 
   // Cancelar factura de compra
   async cancelPurchase(id: number, cancellationReason: string, userId: number) {
-    const purchase = await this.getPurchaseById(id);
+    const purchase = await this.getPurchaseByIdInternal(id);
 
     if (purchase.status === "CANCELLED") {
       throw new ConflictError("La factura ya está cancelada");
