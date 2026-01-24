@@ -55,8 +55,11 @@ export const getProductsHandler = asyncHandler(async (req: Request, res: Respons
   const name = req.query.name ? String(req.query.name) : undefined;
   const categoryId = req.query.categoryId ? parseInt(req.query.categoryId as string, 10) : undefined;
   
+  // Obtener permisos del usuario para condicionar visibilidad de costos
+  const userPermissions = res.locals.user?.permissions || [];
+  
   log.info({ page, pageSize, name, categoryId }, "Consulta de productos paginada y filtrada");
-  const result = await getAllProducts({ page, pageSize, name, categoryId });
+  const result = await getAllProducts({ page, pageSize, name, categoryId, userPermissions });
   log.info({ total: result.total, page, pageSize, name, categoryId }, "Productos obtenidos");
   
   res.status(200).json(result);

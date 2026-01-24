@@ -2,35 +2,27 @@ import { db } from "../../db/connection";
 import { transfers } from "../../db/schema/transfers";
 import { transfersDetail } from "../../db/schema/transfers_detail";
 import { inventoryMovements } from "../../db/schema/inventory_movements";
-import { inventory } from "../../db/schema/inventory";
+import { inventoryLots } from "../../db/schema/inventory_lots";
 import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { users } from "../../db/schema/users";
-import { eq, and, or, desc, sql, gte, lte } from "drizzle-orm";
+import { eq, and, or, desc, sql, gte, lte, gt, asc } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
 import { NotFoundError, ValidationError } from "../../utils/errors";
+import { lotService } from "../inventory/lots.service";
 
 export class TransfersService {
-  // Verificar stock disponible en origen
+  // Verificar stock disponible en origen (desde lotes)
   private async checkStock(warehouseId: number, productId: number, quantity: number) {
-    const [stock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
+    const availableStock = await lotService.getStockFromLots(warehouseId, productId);
 
-    const currentQty = stock ? parseFloat(stock.currentQuantity) : 0;
-    if (currentQty < quantity) {
+    if (availableStock < quantity) {
       const [product] = await db
         .select()
         .from(products)
         .where(eq(products.id, productId));
       throw new ValidationError(
-        `Stock insuficiente para el producto "${product.name}". Disponible: ${currentQty}, Solicitado: ${quantity}`
+        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(4)}, Solicitado: ${quantity}`
       );
     }
   }
@@ -137,7 +129,7 @@ export class TransfersService {
       .orderBy(desc(transfers.createdAt));
   }
 
-  // Aceptar traslado
+  // Aceptar traslado (consume lotes FIFO del origen y crea lotes en destino)
   async acceptTransfer(id: number, userId: number) {
     const transfer = await this.getTransferById(id);
 
@@ -164,46 +156,125 @@ export class TransfersService {
       })
       .where(eq(transfers.id, id));
 
-    // Crear movimientos y actualizar inventario
+    // Procesar cada línea de detalle
     for (const detail of transfer.details) {
+      const quantity = parseFloat(detail.quantity);
       const transferRef = `TRASLADO-${id}`;
 
-      // Salida del almacén origen
-      await db.insert(inventoryMovements).values({
-        type: "TRANSFER_EXIT",
-        status: "APPROVED",
-        warehouseId: transfer.originWarehouseId,
-        productId: detail.productId,
-        quantity: detail.quantity,
-        reference: transferRef,
-        reason: `Salida por traslado ${transferRef}`,
-      });
+      // Obtener lotes FIFO del origen
+      const originLots = await db
+        .select()
+        .from(inventoryLots)
+        .where(
+          and(
+            eq(inventoryLots.productId, detail.productId),
+            eq(inventoryLots.warehouseId, transfer.originWarehouseId),
+            eq(inventoryLots.status, "ACTIVE"),
+            gt(inventoryLots.currentQuantity, "0")
+          )
+        )
+        .orderBy(asc(inventoryLots.entryDate), asc(inventoryLots.id));
 
-      await this.updateInventory(
-        transfer.originWarehouseId,
-        detail.productId,
-        -parseFloat(detail.quantity)
-      );
+      let remainingQuantity = quantity;
 
-      // Entrada al almacén destino
-      await db.insert(inventoryMovements).values({
-        type: "TRANSFER_ENTRY",
-        status: "APPROVED",
-        warehouseId: transfer.destinationWarehouseId,
-        productId: detail.productId,
-        quantity: detail.quantity,
-        reference: transferRef,
-        reason: `Entrada por traslado ${transferRef}`,
-      });
+      for (const lot of originLots) {
+        if (remainingQuantity <= 0) break;
 
-      await this.updateInventory(
-        transfer.destinationWarehouseId,
-        detail.productId,
-        parseFloat(detail.quantity)
-      );
+        const lotQty = parseFloat(lot.currentQuantity);
+        const toTransfer = Math.min(lotQty, remainingQuantity);
+        const isCompleteLot = toTransfer >= lotQty;
+
+        if (isCompleteLot) {
+          // Traslado completo: mover el lote íntegro
+          await lotService.moveLotToWarehouse(lot.id, transfer.destinationWarehouseId);
+
+          // Registrar consumo para trazabilidad
+          await db.insert(inventoryMovements).values({
+            type: "TRANSFER_EXIT",
+            status: "APPROVED",
+            warehouseId: transfer.originWarehouseId,
+            productId: detail.productId,
+            quantity: lot.currentQuantity,
+            reference: transferRef,
+            reason: `Traslado completo de lote ${lot.lotCode}`,
+            lotId: lot.id,
+          });
+
+          await db.insert(inventoryMovements).values({
+            type: "TRANSFER_ENTRY",
+            status: "APPROVED",
+            warehouseId: transfer.destinationWarehouseId,
+            productId: detail.productId,
+            quantity: lot.currentQuantity,
+            reference: transferRef,
+            reason: `Recepción de lote completo ${lot.lotCode}`,
+            lotId: lot.id,
+          });
+        } else {
+          // Traslado parcial: consumir del lote origen y crear nuevo lote en destino
+          
+          // Registrar consumo del lote origen
+          const consumeResult = await lotService.consumeLotsFromWarehouse(
+            transfer.originWarehouseId,
+            detail.productId,
+            toTransfer,
+            "TRANSFER",
+            "transfers_detail",
+            detail.id
+          );
+
+          // Crear nuevo lote en destino con el mismo costo del lote consumido
+          // (puede venir de múltiples lotes, así que creamos uno por cada consumo)
+          for (const consumption of consumeResult.consumptions) {
+            // Obtener info completa del lote original
+            const [originalLot] = await db
+              .select()
+              .from(inventoryLots)
+              .where(eq(inventoryLots.id, consumption.lotId));
+
+            // Crear lote en destino
+            const newLotId = await lotService.createLot({
+              productId: detail.productId,
+              warehouseId: transfer.destinationWarehouseId,
+              quantity: consumption.quantity,
+              originalCurrencyId: originalLot.originalCurrencyId,
+              originalUnitCost: parseFloat(originalLot.originalUnitCost),
+              exchangeRate: parseFloat(originalLot.exchangeRate),
+              sourceType: "TRANSFER",
+              sourceId: id,
+              sourceLotId: consumption.lotId,
+              entryDate: new Date().toISOString().split("T")[0],
+            });
+
+            await db.insert(inventoryMovements).values({
+              type: "TRANSFER_EXIT",
+              status: "APPROVED",
+              warehouseId: transfer.originWarehouseId,
+              productId: detail.productId,
+              quantity: consumption.quantity.toString(),
+              reference: transferRef,
+              reason: `Salida parcial de lote ${consumption.lotCode}`,
+              lotId: consumption.lotId,
+            });
+
+            await db.insert(inventoryMovements).values({
+              type: "TRANSFER_ENTRY",
+              status: "APPROVED",
+              warehouseId: transfer.destinationWarehouseId,
+              productId: detail.productId,
+              quantity: consumption.quantity.toString(),
+              reference: transferRef,
+              reason: `Entrada desde lote ${consumption.lotCode} (nuevo lote creado)`,
+              lotId: newLotId,
+            });
+          }
+        }
+
+        remainingQuantity -= toTransfer;
+      }
     }
 
-    return { message: "Traslado aceptado exitosamente" };
+    return { message: "Traslado aceptado exitosamente. Lotes transferidos." };
   }
 
   // Rechazar traslado
@@ -306,38 +377,4 @@ export class TransfersService {
       details: transfersWithDetails,
     };
   }
-
-  // Actualizar inventario
-  private async updateInventory(
-    warehouseId: number,
-    productId: number,
-    quantityChange: number
-  ) {
-    const [existingStock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
-
-    if (existingStock) {
-      const newQuantity =
-        parseFloat(existingStock.currentQuantity) + quantityChange;
-
-      await db
-        .update(inventory)
-        .set({ currentQuantity: newQuantity.toString() })
-        .where(eq(inventory.id, existingStock.id));
-    } else {
-      await db.insert(inventory).values({
-        warehouseId,
-        productId,
-        currentQuantity: quantityChange.toString(),
-      });
-    }
-  }
 }
-

@@ -19,6 +19,8 @@ import {
   getDailySalesReport,
   getCancelledSalesReport,
   getSalesTotalsReport,
+  getSaleLotConsumptions,
+  getSalesMarginReport,
 } from "./sales.controller";
 
 const router = Router();
@@ -83,6 +85,22 @@ router.post(
   hasPermission("sales.cancel"),
   validate(cancelSaleSchema),
   cancelSale
+);
+
+// GET /sales/:id/lot-consumptions - Consumos de lotes de una venta
+router.get(
+  "/:id/lot-consumptions",
+  authMiddleware,
+  hasPermission("sales.read"),
+  getSaleLotConsumptions
+);
+
+// GET /sales/reports/margin - Reporte de margen real de ventas
+router.get(
+  "/reports/margin",
+  authMiddleware,
+  hasPermission("sales.read"),
+  getSalesMarginReport
 );
 
 export default router;

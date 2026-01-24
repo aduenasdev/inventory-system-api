@@ -2,9 +2,10 @@ import { db } from "../../db/connection";
 import { sales } from "../../db/schema/sales";
 import { salesDetail } from "../../db/schema/sales_detail";
 import { inventoryMovements } from "../../db/schema/inventory_movements";
-import { inventory } from "../../db/schema/inventory";
 import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
+import { lotConsumptions } from "../../db/schema/lot_consumptions";
+import { inventoryLots } from "../../db/schema/inventory_lots";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
@@ -12,6 +13,9 @@ import { users } from "../../db/schema/users";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
+import { lotService } from "../inventory/lots.service";
+
+const BASE_CURRENCY_ID = 1;
 
 export class SalesService {
   // Generar número de factura
@@ -59,26 +63,17 @@ export class SalesService {
     return parseFloat(rate.rate);
   }
 
-  // Verificar stock disponible
+  // Verificar stock disponible (ahora desde lotes)
   private async checkStock(warehouseId: number, productId: number, quantity: number) {
-    const [stock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
+    const availableStock = await lotService.getStockFromLots(warehouseId, productId);
 
-    const currentQty = stock ? parseFloat(stock.currentQuantity) : 0;
-    if (currentQty < quantity) {
+    if (availableStock < quantity) {
       const [product] = await db
         .select()
         .from(products)
         .where(eq(products.id, productId));
       throw new ValidationError(
-        `Stock insuficiente para el producto "${product.name}". Disponible: ${currentQty}, Solicitado: ${quantity}`
+        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(4)}, Solicitado: ${quantity}`
       );
     }
   }
@@ -106,6 +101,7 @@ export class SalesService {
 
     // Generar número de factura
     const invoiceNumber = await this.generateInvoiceNumber();
+    const normalizedDate = normalizeBusinessDate(data.date);
 
     // Procesar conversión de monedas
     let subtotal = 0;
@@ -129,7 +125,7 @@ export class SalesService {
           exchangeRateUsed = await this.getExchangeRate(
             productCurrencyId,
             data.currencyId,
-            data.date
+            normalizedDate
           );
           convertedUnitPrice = detail.unitPrice * (exchangeRateUsed || 1);
         }
@@ -155,7 +151,7 @@ export class SalesService {
       invoiceNumber,
       customerName: data.customerName || null,
       customerPhone: data.customerPhone || null,
-      date: new Date(normalizeBusinessDate(data.date)),
+      date: new Date(normalizedDate),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",
@@ -206,6 +202,8 @@ export class SalesService {
         exchangeRateUsed: salesDetail.exchangeRateUsed,
         convertedUnitPrice: salesDetail.convertedUnitPrice,
         subtotal: salesDetail.subtotal,
+        realCost: salesDetail.realCost,
+        margin: salesDetail.margin,
       })
       .from(salesDetail)
       .innerJoin(products, eq(salesDetail.productId, products.id))
@@ -214,7 +212,7 @@ export class SalesService {
     return { ...sale, details };
   }
 
-  // Aceptar factura de venta
+  // Aceptar factura de venta (consume lotes FIFO y calcula costo real)
   async acceptSale(id: number, userId: number) {
     const sale = await this.getSaleById(id);
 
@@ -237,8 +235,35 @@ export class SalesService {
       })
       .where(eq(sales.id, id));
 
-    // Crear movimientos y actualizar inventario
+    // Consumir lotes FIFO y calcular costo real para cada línea
     for (const detail of sale.details) {
+      const quantity = parseFloat(detail.quantity);
+      const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
+      const revenue = unitPrice * quantity;
+
+      // Consumir lotes FIFO
+      const consumeResult = await lotService.consumeLotsFromWarehouse(
+        sale.warehouseId,
+        detail.productId,
+        quantity,
+        "SALE",
+        "sales_detail",
+        detail.id
+      );
+
+      const realCost = consumeResult.totalCost;
+      const margin = revenue - realCost;
+
+      // Actualizar detalle con costo real y margen
+      await db
+        .update(salesDetail)
+        .set({
+          realCost: realCost.toString(),
+          margin: margin.toString(),
+        })
+        .where(eq(salesDetail.id, detail.id));
+
+      // Crear movimiento de inventario (para auditoría general)
       await db.insert(inventoryMovements).values({
         type: "SALE_EXIT",
         status: "APPROVED",
@@ -246,17 +271,11 @@ export class SalesService {
         productId: detail.productId,
         quantity: detail.quantity,
         reference: sale.invoiceNumber,
-        reason: `Salida por venta ${sale.invoiceNumber}`,
+        reason: `Salida por venta ${sale.invoiceNumber}. Costo real: ${realCost.toFixed(4)}, Margen: ${margin.toFixed(4)}`,
       });
-
-      await this.updateInventory(
-        sale.warehouseId,
-        detail.productId,
-        -parseFloat(detail.quantity)
-      );
     }
 
-    return { message: "Factura de venta aceptada exitosamente" };
+    return { message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO." };
   }
 
   // Cancelar factura de venta
@@ -279,40 +298,183 @@ export class SalesService {
       })
       .where(eq(sales.id, id));
 
-    // Si estaba aprobada, revertir inventario
+    // Si estaba aprobada, recrear lotes con el mismo costo
     if (wasApproved) {
       for (const detail of sale.details) {
-        await db.insert(inventoryMovements).values({
-          type: "ADJUSTMENT_ENTRY",
-          status: "APPROVED",
-          warehouseId: sale.warehouseId,
-          productId: detail.productId,
-          quantity: detail.quantity,
-          reference: sale.invoiceNumber,
-          reason: `Reversión por cancelación de venta ${sale.invoiceNumber}: ${cancellationReason}`,
-        });
+        // Obtener los consumos originales de esta línea
+        const consumptions = await db
+          .select({
+            lotId: lotConsumptions.lotId,
+            quantity: lotConsumptions.quantity,
+            unitCost: lotConsumptions.unitCostAtConsumption,
+            lotCode: inventoryLots.lotCode,
+            originalCurrencyId: inventoryLots.originalCurrencyId,
+            originalUnitCost: inventoryLots.originalUnitCost,
+            exchangeRate: inventoryLots.exchangeRate,
+            entryDate: inventoryLots.entryDate,
+          })
+          .from(lotConsumptions)
+          .innerJoin(inventoryLots, eq(lotConsumptions.lotId, inventoryLots.id))
+          .where(
+            and(
+              eq(lotConsumptions.referenceType, "sales_detail"),
+              eq(lotConsumptions.referenceId, detail.id)
+            )
+          );
 
-        await this.updateInventory(
-          sale.warehouseId,
-          detail.productId,
-          parseFloat(detail.quantity)
-        );
+        // Por cada consumo, crear un lote de devolución con el mismo costo
+        for (const consumption of consumptions) {
+          const quantity = parseFloat(consumption.quantity);
+          const unitCostBase = parseFloat(consumption.unitCost);
+
+          // Crear lote de devolución
+          await lotService.createLot({
+            productId: detail.productId,
+            warehouseId: sale.warehouseId,
+            quantity,
+            originalCurrencyId: consumption.originalCurrencyId,
+            originalUnitCost: parseFloat(consumption.originalUnitCost),
+            exchangeRate: parseFloat(consumption.exchangeRate),
+            sourceType: "ADJUSTMENT",
+            sourceId: id,
+            entryDate: new Date().toISOString().split("T")[0],
+          });
+
+          // Crear movimiento de reversión
+          await db.insert(inventoryMovements).values({
+            type: "ADJUSTMENT_ENTRY",
+            status: "APPROVED",
+            warehouseId: sale.warehouseId,
+            productId: detail.productId,
+            quantity: consumption.quantity,
+            reference: sale.invoiceNumber,
+            reason: `Devolución por cancelación de venta ${sale.invoiceNumber}: ${cancellationReason}. Lote original: ${consumption.lotCode}`,
+          });
+        }
       }
     }
 
     return { message: "Factura cancelada exitosamente" };
   }
 
-  // Reporte de ventas diarias
-  async getDailySalesReport(date: string) {
-    return await db
-      .select()
+  // Reporte de ventas con margen real
+  async getSalesMarginReport(startDate?: string, endDate?: string, warehouseId?: number) {
+    const conditions: any[] = [eq(sales.status, "APPROVED")];
+
+    if (startDate) {
+      conditions.push(gte(sales.date, sql`${startDate}`));
+    }
+
+    if (endDate) {
+      conditions.push(lte(sales.date, sql`${endDate}`));
+    }
+
+    if (warehouseId) {
+      conditions.push(eq(sales.warehouseId, warehouseId));
+    }
+
+    const salesData = await db
+      .select({
+        id: sales.id,
+        invoiceNumber: sales.invoiceNumber,
+        date: sales.date,
+        warehouseId: sales.warehouseId,
+        total: sales.total,
+        customerName: sales.customerName,
+      })
       .from(sales)
-      .where(and(sql`${sales.date} = ${date}`, eq(sales.status, "APPROVED")))
-      .orderBy(desc(sales.acceptedAt));
+      .where(and(...conditions))
+      .orderBy(desc(sales.date));
+
+    // Calcular totales de cada venta
+    const salesWithTotals = await Promise.all(
+      salesData.map(async (sale) => {
+        const details = await db
+          .select({
+            subtotal: salesDetail.subtotal,
+            realCost: salesDetail.realCost,
+            margin: salesDetail.margin,
+          })
+          .from(salesDetail)
+          .where(eq(salesDetail.saleId, sale.id));
+
+        const totalRevenue = details.reduce((sum, d) => sum + parseFloat(d.subtotal), 0);
+        const totalCost = details.reduce((sum, d) => sum + parseFloat(d.realCost || "0"), 0);
+        const totalMargin = details.reduce((sum, d) => sum + parseFloat(d.margin || "0"), 0);
+        const marginPercent = totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0;
+
+        return {
+          ...sale,
+          totalRevenue: totalRevenue.toFixed(4),
+          totalCost: totalCost.toFixed(4),
+          totalMargin: totalMargin.toFixed(4),
+          marginPercent: marginPercent.toFixed(2) + "%",
+        };
+      })
+    );
+
+    // Totales generales
+    const overallRevenue = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalRevenue), 0);
+    const overallCost = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalCost), 0);
+    const overallMargin = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalMargin), 0);
+    const overallMarginPercent = overallRevenue > 0 ? (overallMargin / overallRevenue) * 100 : 0;
+
+    return {
+      sales: salesWithTotals,
+      summary: {
+        totalSales: salesWithTotals.length,
+        totalRevenue: overallRevenue.toFixed(4),
+        totalCost: overallCost.toFixed(4),
+        totalMargin: overallMargin.toFixed(4),
+        marginPercent: overallMarginPercent.toFixed(2) + "%",
+      },
+    };
   }
 
-  // Reporte de ventas canceladas
+  // Obtener consumos de lotes de una venta
+  async getSaleLotConsumptions(saleId: number) {
+    const sale = await this.getSaleById(saleId);
+    
+    const allConsumptions = [];
+    
+    for (const detail of sale.details) {
+      const consumptions = await db
+        .select({
+          detailId: salesDetail.id,
+          productId: salesDetail.productId,
+          productName: products.name,
+          lotId: lotConsumptions.lotId,
+          lotCode: inventoryLots.lotCode,
+          quantityConsumed: lotConsumptions.quantity,
+          unitCost: lotConsumptions.unitCostAtConsumption,
+          totalCost: lotConsumptions.totalCost,
+          lotEntryDate: inventoryLots.entryDate,
+        })
+        .from(lotConsumptions)
+        .innerJoin(inventoryLots, eq(lotConsumptions.lotId, inventoryLots.id))
+        .innerJoin(salesDetail, eq(lotConsumptions.referenceId, salesDetail.id))
+        .innerJoin(products, eq(salesDetail.productId, products.id))
+        .where(
+          and(
+            eq(lotConsumptions.referenceType, "sales_detail"),
+            eq(lotConsumptions.referenceId, detail.id)
+          )
+        );
+      
+      allConsumptions.push(...consumptions);
+    }
+    
+    return {
+      sale: {
+        id: sale.id,
+        invoiceNumber: sale.invoiceNumber,
+        date: sale.date,
+      },
+      consumptions: allConsumptions,
+    };
+  }
+
+  // Reporte de facturas canceladas
   async getCancelledSalesReport(startDate?: string, endDate?: string) {
     const conditions = [eq(sales.status, "CANCELLED")];
 
@@ -331,7 +493,49 @@ export class SalesService {
       .orderBy(desc(sales.cancelledAt));
   }
 
-  // Reporte de ventas totales con conversión de moneda
+  // Reporte de ventas diarias
+  async getDailySalesReport(date: string) {
+    const normalizedDate = normalizeBusinessDate(date);
+    
+    const dailySales = await db
+      .select({
+        id: sales.id,
+        invoiceNumber: sales.invoiceNumber,
+        customerName: sales.customerName,
+        warehouseId: sales.warehouseId,
+        warehouseName: warehouses.name,
+        currencyId: sales.currencyId,
+        currencyCode: currencies.code,
+        total: sales.total,
+        status: sales.status,
+        createdAt: sales.createdAt,
+      })
+      .from(sales)
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
+      .where(
+        and(
+          sql`DATE(${sales.date}) = ${normalizedDate}`,
+          eq(sales.status, "APPROVED")
+        )
+      )
+      .orderBy(desc(sales.createdAt));
+
+    // Calcular totales
+    const totalSales = dailySales.length;
+    const totalRevenue = dailySales.reduce((sum, s) => sum + parseFloat(s.total), 0);
+
+    return {
+      date: normalizedDate,
+      sales: dailySales,
+      summary: {
+        totalSales,
+        totalRevenue: totalRevenue.toFixed(4),
+      },
+    };
+  }
+
+  // Reporte de totales de ventas por período
   async getSalesTotalsReport(
     userId: number,
     startDate: string,
@@ -344,25 +548,26 @@ export class SalesService {
       .from(userWarehouses)
       .where(eq(userWarehouses.userId, userId));
 
-    const warehouseIds = userWarehousesData.map((w) => w.warehouseId);
+    const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
 
-    if (warehouseIds.length === 0) {
+    if (allowedWarehouseIds.length === 0) {
       return {
-        period: { startDate, endDate },
+        startDate,
+        endDate,
         targetCurrency: null,
-        byWarehouse: [],
-        overall: {
-          totalInvoices: 0,
-          totalInTargetCurrency: "0.00",
-          byCurrency: [],
-        },
+        sales: [],
+        summary: { totalSales: 0, totalRevenue: "0.0000" },
       };
     }
 
-    // Obtener todas las ventas aprobadas en el período de los almacenes del usuario
-    const salesData = await db
+    const [targetCurrency] = await db
+      .select()
+      .from(currencies)
+      .where(eq(currencies.id, targetCurrencyId));
+
+    const periodSales = await db
       .select({
-        saleId: sales.id,
+        id: sales.id,
         invoiceNumber: sales.invoiceNumber,
         date: sales.date,
         warehouseId: sales.warehouseId,
@@ -370,153 +575,55 @@ export class SalesService {
         currencyId: sales.currencyId,
         currencyCode: currencies.code,
         total: sales.total,
-        createdBy: sales.createdBy,
-        createdByName: users.nombre,
+        status: sales.status,
       })
       .from(sales)
       .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
       .innerJoin(currencies, eq(sales.currencyId, currencies.id))
-      .innerJoin(users, eq(sales.createdBy, users.id))
       .where(
         and(
+          inArray(sales.warehouseId, allowedWarehouseIds),
           eq(sales.status, "APPROVED"),
-          inArray(sales.warehouseId, warehouseIds),
           gte(sales.date, sql`${startDate}`),
           lte(sales.date, sql`${endDate}`)
         )
-      );
+      )
+      .orderBy(desc(sales.date));
 
-    // Obtener moneda objetivo
-    const [targetCurrency] = await db
-      .select()
-      .from(currencies)
-      .where(eq(currencies.id, targetCurrencyId));
+    // Convertir totales a moneda objetivo
+    let totalRevenueConverted = 0;
 
-    // Agrupar por almacén
-    const byWarehouse: any[] = [];
-    const warehouseMap = new Map<number, any>();
-
-    for (const sale of salesData) {
-      if (!warehouseMap.has(sale.warehouseId)) {
-        warehouseMap.set(sale.warehouseId, {
-          warehouseId: sale.warehouseId,
-          warehouseName: sale.warehouseName,
-          invoiceCount: 0,
-          byCurrency: new Map<string, { currency: string; code: string; total: number }>(),
-          totalInTargetCurrency: 0,
-        });
-      }
-
-      const warehouse = warehouseMap.get(sale.warehouseId);
-      warehouse.invoiceCount++;
-
-      // Acumular por moneda
-      const currencyKey = sale.currencyCode;
-      if (!warehouse.byCurrency.has(currencyKey)) {
-        warehouse.byCurrency.set(currencyKey, {
-          currency: sale.currencyCode,
-          code: sale.currencyCode,
-          total: 0,
-        });
-      }
-      warehouse.byCurrency.get(currencyKey).total += parseFloat(sale.total);
-
-      // Convertir a moneda objetivo
-      let convertedTotal = parseFloat(sale.total);
-      if (sale.currencyId !== targetCurrencyId) {
-        const saleDate = typeof sale.date === 'string' ? sale.date : sale.date.toISOString().split('T')[0];
-        const rate = await this.getExchangeRate(
-          sale.currencyId,
-          targetCurrencyId,
-          saleDate
-        );
-        if (rate) {
-          convertedTotal = parseFloat(sale.total) * rate;
+    const salesWithConversion = await Promise.all(
+      periodSales.map(async (sale) => {
+        let convertedTotal = parseFloat(sale.total);
+        
+        if (sale.currencyId !== targetCurrencyId) {
+          // Buscar tasa de cambio
+          const saleDate = new Date(sale.date).toISOString().split("T")[0];
+          const rate = await this.getExchangeRate(sale.currencyId, targetCurrencyId, saleDate);
+          if (rate) {
+            convertedTotal = parseFloat(sale.total) * rate;
+          }
         }
-      }
-      warehouse.totalInTargetCurrency += convertedTotal;
-    }
-
-    // Construir resultado por almacén
-    for (const [_, warehouse] of warehouseMap) {
-      byWarehouse.push({
-        warehouseId: warehouse.warehouseId,
-        warehouseName: warehouse.warehouseName,
-        invoiceCount: warehouse.invoiceCount,
-        byCurrency: Array.from(warehouse.byCurrency.values()).map((c: any) => ({
-          currency: c.currency,
-          code: c.code,
-          total: c.total.toFixed(2),
-        })),
-        totalInTargetCurrency: warehouse.totalInTargetCurrency.toFixed(2),
-      });
-    }
-
-    // Calcular totales generales
-    const overallByCurrency = new Map<string, { currency: string; total: number }>();
-    let overallTotal = 0;
-
-    for (const warehouse of byWarehouse) {
-      for (const curr of warehouse.byCurrency) {
-        if (!overallByCurrency.has(curr.code)) {
-          overallByCurrency.set(curr.code, {
-            currency: curr.code,
-            total: 0,
-          });
-        }
-        overallByCurrency.get(curr.code)!.total += parseFloat(curr.total);
-      }
-      overallTotal += parseFloat(warehouse.totalInTargetCurrency);
-    }
+        
+        totalRevenueConverted += convertedTotal;
+        
+        return {
+          ...sale,
+          convertedTotal: convertedTotal.toFixed(4),
+        };
+      })
+    );
 
     return {
-      period: { startDate, endDate },
-      targetCurrency: targetCurrency
-        ? { id: targetCurrency.id, code: targetCurrency.code, name: targetCurrency.name }
-        : null,
-      byWarehouse,
-      overall: {
-        totalInvoices: salesData.length,
-        byCurrency: Array.from(overallByCurrency.values()).map((c) => ({
-          currency: c.currency,
-          total: c.total.toFixed(2),
-        })),
-        totalInTargetCurrency: overallTotal.toFixed(2),
+      startDate,
+      endDate,
+      targetCurrency: targetCurrency?.code || null,
+      sales: salesWithConversion,
+      summary: {
+        totalSales: periodSales.length,
+        totalRevenue: totalRevenueConverted.toFixed(4),
       },
     };
   }
-
-  // Actualizar inventario
-  private async updateInventory(
-    warehouseId: number,
-    productId: number,
-    quantityChange: number
-  ) {
-    const [existingStock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
-
-    if (existingStock) {
-      const newQuantity =
-        parseFloat(existingStock.currentQuantity) + quantityChange;
-
-      await db
-        .update(inventory)
-        .set({ currentQuantity: newQuantity.toString() })
-        .where(eq(inventory.id, existingStock.id));
-    } else {
-      await db.insert(inventory).values({
-        warehouseId,
-        productId,
-        currentQuantity: quantityChange.toString(),
-      });
-    }
-  }
 }
-

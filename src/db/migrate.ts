@@ -35,7 +35,10 @@ async function main() {
 
   const db = drizzle(pool);
 
-  // 4. Crear todas las tablas
+  // ═══════════════════════════════════════════════════════════════
+  // TABLAS BASE (usuarios, roles, permisos)
+  // ═══════════════════════════════════════════════════════════════
+
   await db.execute(sql`
     CREATE TABLE roles (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -97,6 +100,10 @@ async function main() {
     )
   `);
 
+  // ═══════════════════════════════════════════════════════════════
+  // TABLAS DE CONFIGURACIÓN (almacenes, unidades, monedas, etc.)
+  // ═══════════════════════════════════════════════════════════════
+
   await db.execute(sql`
     CREATE TABLE warehouses (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -151,7 +158,7 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       from_currency_id INT NOT NULL,
       to_currency_id INT NOT NULL,
-      rate DECIMAL(18, 2) NOT NULL,
+      rate DECIMAL(18, 6) NOT NULL,
       date DATE NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -173,13 +180,28 @@ async function main() {
   `);
 
   await db.execute(sql`
+    CREATE TABLE payment_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      type VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  // ═══════════════════════════════════════════════════════════════
+  // PRODUCTOS
+  // ═══════════════════════════════════════════════════════════════
+
+  await db.execute(sql`
     CREATE TABLE products (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
       code VARCHAR(100) NOT NULL UNIQUE,
       description TEXT,
-      cost_price DECIMAL(18, 2),
-      sale_price DECIMAL(18, 2),
+      cost_price DECIMAL(18, 4),
+      sale_price DECIMAL(18, 4),
       currency_id INT NOT NULL,
       unit_id INT NOT NULL,
       category_id INT NOT NULL DEFAULT 0,
@@ -192,23 +214,16 @@ async function main() {
     )
   `);
 
-  await db.execute(sql`
-    CREATE TABLE payment_types (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      type VARCHAR(100) NOT NULL UNIQUE,
-      description TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )
-  `);
+  // ═══════════════════════════════════════════════════════════════
+  // INVENTARIO (caché de stock + lotes)
+  // ═══════════════════════════════════════════════════════════════
 
   await db.execute(sql`
     CREATE TABLE inventory (
       id INT AUTO_INCREMENT PRIMARY KEY,
       warehouse_id INT NOT NULL,
       product_id INT NOT NULL,
-      current_quantity DECIMAL(18, 2) NOT NULL DEFAULT 0,
+      current_quantity DECIMAL(18, 4) NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
       UNIQUE KEY unique_warehouse_product (warehouse_id, product_id),
@@ -217,6 +232,71 @@ async function main() {
     )
   `);
 
+  // LOTES DE INVENTARIO (tabla principal del sistema de lotes)
+  await db.execute(sql`
+    CREATE TABLE inventory_lots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lot_code VARCHAR(50) NOT NULL UNIQUE,
+      
+      product_id INT NOT NULL,
+      warehouse_id INT NOT NULL,
+      
+      initial_quantity DECIMAL(18, 4) NOT NULL,
+      current_quantity DECIMAL(18, 4) NOT NULL,
+      
+      unit_cost_base DECIMAL(18, 4) NOT NULL,
+      
+      original_currency_id INT NOT NULL,
+      original_unit_cost DECIMAL(18, 4) NOT NULL,
+      exchange_rate DECIMAL(18, 4) NOT NULL,
+      
+      source_type ENUM('PURCHASE', 'TRANSFER', 'ADJUSTMENT', 'MIGRATION') NOT NULL,
+      source_id INT,
+      source_lot_id INT,
+      
+      entry_date DATE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+      
+      status ENUM('ACTIVE', 'EXHAUSTED') NOT NULL DEFAULT 'ACTIVE',
+      
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (original_currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (source_lot_id) REFERENCES inventory_lots(id),
+      
+      INDEX idx_lot_fifo (product_id, warehouse_id, status, entry_date, id),
+      INDEX idx_lot_warehouse (warehouse_id),
+      INDEX idx_lot_product (product_id),
+      INDEX idx_lot_source (source_type, source_id)
+    )
+  `);
+
+  // CONSUMOS DE LOTES (trazabilidad)
+  await db.execute(sql`
+    CREATE TABLE lot_consumptions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      lot_id INT NOT NULL,
+      
+      consumption_type ENUM('SALE', 'TRANSFER', 'ADJUSTMENT', 'CANCELLATION') NOT NULL,
+      
+      reference_type VARCHAR(50) NOT NULL,
+      reference_id INT NOT NULL,
+      
+      quantity DECIMAL(18, 4) NOT NULL,
+      
+      unit_cost_at_consumption DECIMAL(18, 4) NOT NULL,
+      total_cost DECIMAL(18, 4) NOT NULL,
+      
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      
+      FOREIGN KEY (lot_id) REFERENCES inventory_lots(id),
+      INDEX idx_consumption_lot (lot_id),
+      INDEX idx_consumption_reference (reference_type, reference_id)
+    )
+  `);
+
+  // Movimientos de inventario (auditoría general)
   await db.execute(sql`
     CREATE TABLE inventory_movements (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -224,15 +304,21 @@ async function main() {
       status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
       warehouse_id INT NOT NULL,
       product_id INT NOT NULL,
-      quantity DECIMAL(18, 2) NOT NULL,
+      quantity DECIMAL(18, 4) NOT NULL,
       reference VARCHAR(255),
       reason TEXT,
+      lot_id INT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
-      FOREIGN KEY (product_id) REFERENCES products(id)
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (lot_id) REFERENCES inventory_lots(id)
     )
   `);
+
+  // ═══════════════════════════════════════════════════════════════
+  // COMPRAS
+  // ═══════════════════════════════════════════════════════════════
 
   await db.execute(sql`
     CREATE TABLE purchases (
@@ -244,8 +330,8 @@ async function main() {
       warehouse_id INT NOT NULL,
       currency_id INT NOT NULL,
       status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
-      subtotal DECIMAL(18, 2) NOT NULL,
-      total DECIMAL(18, 2) NOT NULL,
+      subtotal DECIMAL(18, 4) NOT NULL,
+      total DECIMAL(18, 4) NOT NULL,
       notes TEXT,
       cancellation_reason TEXT,
       created_by INT NOT NULL,
@@ -268,17 +354,23 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       purchase_id INT NOT NULL,
       product_id INT NOT NULL,
-      quantity DECIMAL(18, 2) NOT NULL,
-      unit_cost DECIMAL(18, 2) NOT NULL,
+      quantity DECIMAL(18, 4) NOT NULL,
+      unit_cost DECIMAL(18, 4) NOT NULL,
       original_currency_id INT,
-      exchange_rate_used DECIMAL(18, 2),
-      converted_unit_cost DECIMAL(18, 2),
-      subtotal DECIMAL(18, 2) NOT NULL,
+      exchange_rate_used DECIMAL(18, 6),
+      converted_unit_cost DECIMAL(18, 4),
+      subtotal DECIMAL(18, 4) NOT NULL,
+      lot_id INT,
       FOREIGN KEY (purchase_id) REFERENCES purchases(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
-      FOREIGN KEY (original_currency_id) REFERENCES currencies(id)
+      FOREIGN KEY (original_currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (lot_id) REFERENCES inventory_lots(id)
     )
   `);
+
+  // ═══════════════════════════════════════════════════════════════
+  // VENTAS
+  // ═══════════════════════════════════════════════════════════════
 
   await db.execute(sql`
     CREATE TABLE sales (
@@ -290,8 +382,8 @@ async function main() {
       warehouse_id INT NOT NULL,
       currency_id INT NOT NULL,
       status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
-      subtotal DECIMAL(18, 2) NOT NULL,
-      total DECIMAL(18, 2) NOT NULL,
+      subtotal DECIMAL(18, 4) NOT NULL,
+      total DECIMAL(18, 4) NOT NULL,
       notes TEXT,
       cancellation_reason TEXT,
       created_by INT NOT NULL,
@@ -314,19 +406,25 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       sale_id INT NOT NULL,
       product_id INT NOT NULL,
-      quantity DECIMAL(18, 2) NOT NULL,
-      unit_price DECIMAL(18, 2) NOT NULL,
+      quantity DECIMAL(18, 4) NOT NULL,
+      unit_price DECIMAL(18, 4) NOT NULL,
       payment_type_id INT NOT NULL,
       original_currency_id INT,
-      exchange_rate_used DECIMAL(18, 2),
-      converted_unit_price DECIMAL(18, 2),
-      subtotal DECIMAL(18, 2) NOT NULL,
+      exchange_rate_used DECIMAL(18, 6),
+      converted_unit_price DECIMAL(18, 4),
+      subtotal DECIMAL(18, 4) NOT NULL,
+      real_cost DECIMAL(18, 4),
+      margin DECIMAL(18, 4),
       FOREIGN KEY (sale_id) REFERENCES sales(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
       FOREIGN KEY (payment_type_id) REFERENCES payment_types(id),
       FOREIGN KEY (original_currency_id) REFERENCES currencies(id)
     )
   `);
+
+  // ═══════════════════════════════════════════════════════════════
+  // TRASLADOS
+  // ═══════════════════════════════════════════════════════════════
 
   await db.execute(sql`
     CREATE TABLE transfers (
@@ -338,16 +436,16 @@ async function main() {
       notes TEXT,
       rejection_reason TEXT,
       created_by INT NOT NULL,
-      accepted_by INT,
+      approved_by INT,
       rejected_by INT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      accepted_at TIMESTAMP NULL,
+      approved_at TIMESTAMP NULL,
       rejected_at TIMESTAMP NULL,
       FOREIGN KEY (origin_warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (created_by) REFERENCES users(id),
-      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (approved_by) REFERENCES users(id),
       FOREIGN KEY (rejected_by) REFERENCES users(id)
     )
   `);
@@ -357,15 +455,17 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       transfer_id INT NOT NULL,
       product_id INT NOT NULL,
-      quantity DECIMAL(18, 2) NOT NULL,
+      quantity DECIMAL(18, 4) NOT NULL,
       FOREIGN KEY (transfer_id) REFERENCES transfers(id),
       FOREIGN KEY (product_id) REFERENCES products(id)
     )
   `);
 
-  console.log("Todas las tablas creadas exitosamente.");
+  console.log("✅ Todas las tablas creadas exitosamente.");
 
-  // 5. Seed de datos
+  // ═══════════════════════════════════════════════════════════════
+  // SEED DE DATOS INICIALES
+  // ═══════════════════════════════════════════════════════════════
 
   // Crear rol de administrador
   const [adminRoleResult] = (await db.execute(
@@ -377,7 +477,7 @@ async function main() {
   // Crear usuario administrador
   const hashedPassword = await bcrypt.hash("Admin123", 10);
   const [adminUserResult] = (await db.execute(
-    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin123"})`
+    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin"})`
   )) as any[];
   const adminUserId = adminUserResult.insertId;
   console.log("Usuario 'admin@sasinversus.com' creado.");
@@ -385,9 +485,9 @@ async function main() {
   // Asociar usuario admin con rol admin
   await db.execute(sql`INSERT INTO user_roles (user_id, role_id) VALUES (${adminUserId}, ${adminRoleId})`);
 
-  // Poblar permisos fijos
+  // Poblar permisos
   const fixedPermissions = [
-     // CRUD usuarios
+    // CRUD usuarios
     { name: 'users.read', description: 'Leer usuarios', group_name: 'users' },
     { name: 'users.create', description: 'Crear usuarios', group_name: 'users' },
     { name: 'users.update', description: 'Actualizar usuarios', group_name: 'users' },
@@ -395,12 +495,12 @@ async function main() {
     { name: 'users.roles.associate', description: 'Asociar roles a usuarios', group_name: 'users' },
     { name: 'users.warehouses.associate', description: 'Asociar usuarios a almacenes', group_name: 'users' },
 
-   // CRUD almacenes
+    // CRUD almacenes
     { name: 'warehouses.read', description: 'Leer almacenes', group_name: 'warehouses' },
     { name: 'warehouses.create', description: 'Crear almacenes', group_name: 'warehouses' },
     { name: 'warehouses.update', description: 'Actualizar almacenes', group_name: 'warehouses' },
     { name: 'warehouses.delete', description: 'Eliminar almacenes', group_name: 'warehouses' },
-  
+
     // CRUD roles
     { name: 'roles.read', description: 'Leer roles', group_name: 'roles' },
     { name: 'roles.create', description: 'Crear roles', group_name: 'roles' },
@@ -436,6 +536,7 @@ async function main() {
     { name: 'products.create', description: 'Crear productos', group_name: 'products' },
     { name: 'products.update', description: 'Actualizar productos', group_name: 'products' },
     { name: 'products.delete', description: 'Eliminar productos', group_name: 'products' },
+    { name: 'products.cost.read', description: 'Ver precio de costo de productos', group_name: 'products' },
 
     // CRUD tipos de pago
     { name: 'payment_types.read', description: 'Leer tipos de pago', group_name: 'payment_types' },
@@ -447,6 +548,7 @@ async function main() {
     { name: 'inventory.read', description: 'Consultar inventario', group_name: 'inventory' },
     { name: 'inventory.adjustments.create', description: 'Crear ajustes de inventario', group_name: 'inventory' },
     { name: 'inventory.adjustments.approve', description: 'Aprobar ajustes de inventario', group_name: 'inventory' },
+    { name: 'inventory.lots.read', description: 'Consultar lotes de inventario', group_name: 'inventory' },
 
     // Compras
     { name: 'purchases.read', description: 'Leer facturas de compra', group_name: 'purchases' },
@@ -477,7 +579,7 @@ async function main() {
                       SELECT ${adminRoleId}, p.id FROM permissions p`);
   console.log("Permisos asignados al rol admin.");
 
-  // Seed de moneda base CUP (no puede ser eliminada ni editada)
+  // Seed de moneda base CUP (ID=1, no puede ser eliminada)
   await db.execute(sql`INSERT INTO currencies (name, code, symbol, decimal_places, is_active) VALUES 
     ('Peso Cubano', 'CUP', '₱', 2, TRUE)`);
   console.log("Moneda base CUP creada (ID=1).");
@@ -488,7 +590,7 @@ async function main() {
     ('Euro', 'EUR', '€', 2)`);
   console.log("Monedas USD y EUR creadas.");
 
-  // Seed de unidades de medida más comunes
+  // Seed de unidades de medida comunes
   const commonUnits = [
     { name: 'Unidad', short_name: 'u', description: 'Unidad individual', type: 'countable' },
     { name: 'Kilogramo', short_name: 'kg', description: 'Unidad de masa', type: 'weight' },
@@ -510,7 +612,7 @@ async function main() {
   }
   console.log("Unidades de medida comunes creadas.");
 
-  // Seed de tipos de pago más comunes
+  // Seed de tipos de pago comunes
   const commonPaymentTypes = [
     { type: 'Efectivo', description: 'Pago en efectivo' },
     { type: 'Transferencia', description: 'Transferencia bancaria' },
@@ -524,12 +626,15 @@ async function main() {
   console.log("Tipos de pago comunes creados.");
 
   console.log("\n✅ Migración completada exitosamente!");
-  console.log("📊 Base de datos creada desde cero con todas las tablas y datos iniciales.");
+  console.log("📊 Base de datos creada con sistema de inventario por lotes.");
+  console.log("\n📝 Credenciales del administrador:");
+  console.log("   Email: admin@sasinversus.com");
+  console.log("   Password: Admin123");
+  
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error("Error en la migración o seed:", err);
+  console.error("Error en la migración:", err);
   process.exit(1);
 });
-

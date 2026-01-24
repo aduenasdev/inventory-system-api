@@ -20,6 +20,8 @@ import { sales } from "./sales";
 import { salesDetail } from "./sales_detail";
 import { transfers } from "./transfers";
 import { transfersDetail } from "./transfers_detail";
+import { inventoryLots } from "./inventory_lots";
+import { lotConsumptions } from "./lot_consumptions";
 
 export const schemas = {
   users,
@@ -44,4 +46,6 @@ export const schemas = {
   salesDetail,
   transfers,
   transfersDetail,
+  inventoryLots,
+  lotConsumptions,
 };

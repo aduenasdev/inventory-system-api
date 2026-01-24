@@ -1,36 +1,31 @@
 import { db } from "../../db/connection";
 import { inventory } from "../../db/schema/inventory";
 import { inventoryMovements } from "../../db/schema/inventory_movements";
+import { inventoryLots } from "../../db/schema/inventory_lots";
 import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { currencies } from "../../db/schema/currencies";
-import { users } from "../../db/schema/users";
-import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
-import { ForbiddenError } from "../../utils/errors";
+import { eq, and, sql, desc, gte, lte, inArray, gt, asc } from "drizzle-orm";
+import { ForbiddenError, ValidationError } from "../../utils/errors";
+import { lotService } from "./lots.service";
 
 export class InventoryService {
-  // Obtener stock actual de un producto en un almacén
+  // Obtener stock actual de un producto en un almacén (desde cache o lotes)
   async getStockByWarehouseAndProduct(warehouseId: number, productId: number) {
-    const [stock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
+    // Calcular desde lotes activos (fuente de verdad)
+    const stockFromLots = await lotService.getStockFromLots(warehouseId, productId);
 
-    if (!stock) {
-      return { warehouseId, productId, currentQuantity: "0" };
-    }
-
-    return stock;
+    return {
+      warehouseId,
+      productId,
+      currentQuantity: stockFromLots.toFixed(4),
+    };
   }
 
-  // Obtener stock completo de un almacén
+  // Obtener stock completo de un almacén (desde cache, sincronizado con lotes)
   async getStockByWarehouse(warehouseId: number) {
+    // Obtener desde cache
     const stocks = await db
       .select({
         id: inventory.id,
@@ -60,6 +55,7 @@ export class InventoryService {
         quantity: inventoryMovements.quantity,
         reference: inventoryMovements.reference,
         reason: inventoryMovements.reason,
+        lotId: inventoryMovements.lotId,
         createdAt: inventoryMovements.createdAt,
       })
       .from(inventoryMovements)
@@ -67,10 +63,24 @@ export class InventoryService {
       .where(eq(inventoryMovements.productId, productId))
       .orderBy(desc(inventoryMovements.createdAt));
 
-    return movements;
+    // Enriquecer con información del lote si existe
+    const movementsWithLot = await Promise.all(
+      movements.map(async (m) => {
+        if (m.lotId) {
+          const [lot] = await db
+            .select({ lotCode: inventoryLots.lotCode })
+            .from(inventoryLots)
+            .where(eq(inventoryLots.id, m.lotId));
+          return { ...m, lotCode: lot?.lotCode || null };
+        }
+        return { ...m, lotCode: null };
+      })
+    );
+
+    return movementsWithLot;
   }
 
-  // Crear ajuste de inventario (siempre APPROVED)
+  // Crear ajuste de inventario (con lógica de lotes)
   async createAdjustment(data: {
     type: "ADJUSTMENT_ENTRY" | "ADJUSTMENT_EXIT";
     warehouseId: number;
@@ -78,77 +88,136 @@ export class InventoryService {
     quantity: number;
     reason: string;
     userId: number;
+    currencyId?: number; // Solo para entradas
+    unitCost?: number; // Solo para entradas
+    exchangeRate?: number; // Solo para entradas
   }) {
-    // Crear movimiento APPROVED
-    const [movement] = (await db.insert(inventoryMovements).values({
-      type: data.type,
-      status: "APPROVED",
-      warehouseId: data.warehouseId,
-      productId: data.productId,
-      quantity: data.quantity.toString(),
-      reference: `ADJ-${Date.now()}`,
-      reason: data.reason,
-    })) as any;
+    const reference = `ADJ-${Date.now()}`;
 
-    // Actualizar inventario inmediatamente
-    await this.updateInventory(
-      data.warehouseId,
-      data.productId,
-      data.type === "ADJUSTMENT_ENTRY" ? data.quantity : -data.quantity
-    );
+    if (data.type === "ADJUSTMENT_ENTRY") {
+      // Para entradas, crear un nuevo lote
+      let originalCurrencyId = data.currencyId;
+      let originalUnitCost = data.unitCost;
+      let exchangeRate = data.exchangeRate || 1;
 
-    return movement;
-  }
+      // Si no se especifica costo, usar el último lote conocido o producto
+      if (!originalUnitCost) {
+        const lastCost = await lotService.getLastKnownCost(data.productId);
+        if (lastCost) {
+          originalCurrencyId = lastCost.originalCurrencyId;
+          originalUnitCost = lastCost.originalUnitCost;
+          exchangeRate = lastCost.exchangeRate;
+        }
+      }
 
-  // Actualizar inventario (método interno)
-  private async updateInventory(
-    warehouseId: number,
-    productId: number,
-    quantityChange: number
-  ) {
-    // Buscar registro de inventario
-    const [existingStock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
+      if (!originalCurrencyId || !originalUnitCost) {
+        throw new ValidationError(
+          "Debe especificar el costo y la moneda para ajustes de entrada, o el producto debe tener un costo definido"
+        );
+      }
+
+      // Crear lote para el ajuste de entrada
+      const lotId = await lotService.createLot({
+        productId: data.productId,
+        warehouseId: data.warehouseId,
+        quantity: data.quantity,
+        originalCurrencyId,
+        originalUnitCost,
+        exchangeRate,
+        sourceType: "ADJUSTMENT",
+        sourceId: undefined,
+        sourceLotId: undefined,
+        entryDate: new Date().toISOString().split("T")[0],
+      });
+
+      // Registrar movimiento
+      await db.insert(inventoryMovements).values({
+        type: data.type,
+        status: "APPROVED",
+        warehouseId: data.warehouseId,
+        productId: data.productId,
+        quantity: data.quantity.toString(),
+        reference,
+        reason: data.reason,
+        lotId,
+      });
+
+      return {
+        message: "Ajuste de entrada creado exitosamente",
+        lotId,
+        reference,
+      };
+    } else {
+      // Para salidas, consumir lotes FIFO
+      const availableStock = await lotService.getStockFromLots(
+        data.warehouseId,
+        data.productId
       );
 
-    if (existingStock) {
-      // Actualizar stock existente
-      const newQuantity =
-        parseFloat(existingStock.currentQuantity) + quantityChange;
+      if (availableStock < data.quantity) {
+        throw new ValidationError(
+          `Stock insuficiente. Disponible: ${availableStock.toFixed(4)}, Solicitado: ${data.quantity}`
+        );
+      }
 
-      await db
-        .update(inventory)
-        .set({
-          currentQuantity: newQuantity.toString(),
-        })
-        .where(eq(inventory.id, existingStock.id));
-    } else {
-      // Crear nuevo registro de inventario
-      await db.insert(inventory).values({
-        warehouseId,
-        productId,
-        currentQuantity: quantityChange.toString(),
-      });
+      // Consumir lotes FIFO
+      const consumeResult = await lotService.consumeLotsFromWarehouse(
+        data.warehouseId,
+        data.productId,
+        data.quantity,
+        "ADJUSTMENT",
+        "inventory_movements",
+        null
+      );
+
+      // Registrar movimiento por cada consumo
+      for (const consumption of consumeResult.consumptions) {
+        await db.insert(inventoryMovements).values({
+          type: data.type,
+          status: "APPROVED",
+          warehouseId: data.warehouseId,
+          productId: data.productId,
+          quantity: consumption.quantity.toString(),
+          reference,
+          reason: `${data.reason} (Lote: ${consumption.lotCode})`,
+          lotId: consumption.lotId,
+        });
+      }
+
+      return {
+        message: "Ajuste de salida creado exitosamente",
+        reference,
+        consumedLots: consumeResult.consumptions.length,
+        totalCost: consumeResult.totalCost,
+      };
     }
   }
 
-  // Verificar si hay stock suficiente
+  // Verificar si hay stock suficiente (desde lotes)
   async checkStock(warehouseId: number, productId: number, quantity: number) {
-    const stock = await this.getStockByWarehouseAndProduct(
-      warehouseId,
-      productId
-    );
-    const currentQty = parseFloat(stock.currentQuantity);
-    return currentQty >= quantity;
+    const stockFromLots = await lotService.getStockFromLots(warehouseId, productId);
+    return stockFromLots >= quantity;
   }
 
-  // Reporte de inventario valorizado
+  // Obtener lotes activos de un producto en un almacén
+  async getActiveLots(warehouseId: number, productId: number) {
+    return await lotService.getActiveLotsByProductAndWarehouse(
+      productId,
+      warehouseId
+    );
+  }
+
+  // Obtener todos los lotes de un almacén
+  async getLotsByWarehouse(warehouseId: number) {
+    return await lotService.getLotsByWarehouse(warehouseId);
+  }
+
+  // Obtener kardex de un lote específico
+  async getLotKardex(lotId: number) {
+    return await lotService.getLotKardex(lotId);
+  }
+
+  // Reporte de inventario valorizado (usando lotes para cálculo de costo)
   async getInventoryValueReport(userId: number, warehouseId?: number) {
     // Obtener almacenes del usuario
     const userWarehousesData = await db
@@ -169,134 +238,128 @@ export class InventoryService {
     if (allowedWarehouseIds.length === 0) {
       return {
         byWarehouse: [],
-        overall: { byCurrency: [], totalProducts: 0 },
+        overall: { byCurrency: [], totalProducts: 0, totalCostCUP: "0.0000" },
       };
     }
 
-    // Obtener inventario con productos y sus precios
-    const inventoryData = await db
+    // Obtener lotes activos con stock
+    const activeLots = await db
       .select({
-        warehouseId: inventory.warehouseId,
+        warehouseId: inventoryLots.warehouseId,
         warehouseName: warehouses.name,
-        productId: inventory.productId,
+        productId: inventoryLots.productId,
         productName: products.name,
         productCode: products.code,
-        quantity: inventory.currentQuantity,
-        costPrice: products.costPrice,
-        salePrice: products.salePrice,
-        currencyId: products.currencyId,
+        lotCode: inventoryLots.lotCode,
+        currentQuantity: inventoryLots.currentQuantity,
+        unitCostBase: inventoryLots.unitCostBase,
+        originalUnitCost: inventoryLots.originalUnitCost,
+        originalCurrencyId: inventoryLots.originalCurrencyId,
         currencyCode: currencies.code,
         currencyName: currencies.name,
+        entryDate: inventoryLots.entryDate,
       })
-      .from(inventory)
-      .innerJoin(warehouses, eq(inventory.warehouseId, warehouses.id))
-      .innerJoin(products, eq(inventory.productId, products.id))
-      .innerJoin(currencies, eq(products.currencyId, currencies.id))
-      .where(inArray(inventory.warehouseId, allowedWarehouseIds));
+      .from(inventoryLots)
+      .innerJoin(warehouses, eq(inventoryLots.warehouseId, warehouses.id))
+      .innerJoin(products, eq(inventoryLots.productId, products.id))
+      .innerJoin(currencies, eq(inventoryLots.originalCurrencyId, currencies.id))
+      .where(
+        and(
+          inArray(inventoryLots.warehouseId, allowedWarehouseIds),
+          eq(inventoryLots.status, "ACTIVE"),
+          gt(inventoryLots.currentQuantity, "0")
+        )
+      )
+      .orderBy(asc(inventoryLots.entryDate));
 
     // Agrupar por almacén
     const byWarehouse: any[] = [];
     const warehouseMap = new Map<number, any>();
 
-    for (const item of inventoryData) {
-      if (!warehouseMap.has(item.warehouseId)) {
-        warehouseMap.set(item.warehouseId, {
-          warehouseId: item.warehouseId,
-          warehouseName: item.warehouseName,
-          products: [],
-          byCurrency: new Map<string, { currency: string; code: string; totalCost: number; totalSale: number; productCount: number }>(),
+    for (const lot of activeLots) {
+      if (!warehouseMap.has(lot.warehouseId)) {
+        warehouseMap.set(lot.warehouseId, {
+          warehouseId: lot.warehouseId,
+          warehouseName: lot.warehouseName,
+          lots: [],
+          products: new Map<number, any>(),
+          totalCostCUP: 0,
         });
       }
 
-      const warehouse = warehouseMap.get(item.warehouseId);
-      
-      const quantity = parseFloat(item.quantity);
-      const costPrice = parseFloat(item.costPrice || "0");
-      const salePrice = parseFloat(item.salePrice || "0");
-      const totalCost = quantity * costPrice;
-      const totalSale = quantity * salePrice;
+      const warehouse = warehouseMap.get(lot.warehouseId);
 
-      warehouse.products.push({
-        productId: item.productId,
-        productName: item.productName,
-        productCode: item.productCode,
-        quantity: item.quantity,
-        costPrice: item.costPrice,
-        salePrice: item.salePrice,
-        currency: item.currencyCode,
-        totalCost: totalCost.toFixed(2),
-        totalSale: totalSale.toFixed(2),
+      const quantity = parseFloat(lot.currentQuantity);
+      const unitCostBase = parseFloat(lot.unitCostBase); // En CUP
+      const totalCostCUP = quantity * unitCostBase;
+
+      warehouse.lots.push({
+        lotCode: lot.lotCode,
+        productId: lot.productId,
+        productName: lot.productName,
+        productCode: lot.productCode,
+        quantity: lot.currentQuantity,
+        originalCurrency: lot.currencyCode,
+        originalUnitCost: lot.originalUnitCost,
+        unitCostCUP: lot.unitCostBase,
+        totalCostCUP: totalCostCUP.toFixed(4),
+        entryDate: lot.entryDate,
       });
 
-      // Acumular por moneda
-      const currencyKey = item.currencyCode;
-      if (!warehouse.byCurrency.has(currencyKey)) {
-        warehouse.byCurrency.set(currencyKey, {
-          currency: item.currencyName,
-          code: item.currencyCode,
-          totalCost: 0,
-          totalSale: 0,
-          productCount: 0,
+      warehouse.totalCostCUP += totalCostCUP;
+
+      // Acumular por producto
+      if (!warehouse.products.has(lot.productId)) {
+        warehouse.products.set(lot.productId, {
+          productId: lot.productId,
+          productName: lot.productName,
+          productCode: lot.productCode,
+          totalQuantity: 0,
+          totalCostCUP: 0,
+          lotCount: 0,
         });
       }
-      
-      const currencyData = warehouse.byCurrency.get(currencyKey);
-      currencyData.totalCost += totalCost;
-      currencyData.totalSale += totalSale;
-      currencyData.productCount++;
+      const prodData = warehouse.products.get(lot.productId);
+      prodData.totalQuantity += quantity;
+      prodData.totalCostCUP += totalCostCUP;
+      prodData.lotCount++;
     }
 
     // Construir resultado por almacén
+    let overallTotalCostCUP = 0;
+    let overallTotalProducts = 0;
+
     for (const [_, warehouse] of warehouseMap) {
+      const productsArray = Array.from(warehouse.products.values()).map((p: any) => ({
+        productId: p.productId,
+        productName: p.productName,
+        productCode: p.productCode,
+        totalQuantity: p.totalQuantity.toFixed(4),
+        totalCostCUP: p.totalCostCUP.toFixed(4),
+        averageCostCUP: (p.totalCostCUP / p.totalQuantity).toFixed(4),
+        lotCount: p.lotCount,
+      }));
+
       byWarehouse.push({
         warehouseId: warehouse.warehouseId,
         warehouseName: warehouse.warehouseName,
-        productCount: warehouse.products.length,
-        products: warehouse.products,
-        byCurrency: Array.from(warehouse.byCurrency.values()).map((c: any) => ({
-          currency: c.currency,
-          code: c.code,
-          totalCost: c.totalCost.toFixed(2),
-          totalSale: c.totalSale.toFixed(2),
-          productCount: c.productCount,
-        })),
+        productCount: warehouse.products.size,
+        lotCount: warehouse.lots.length,
+        totalCostCUP: warehouse.totalCostCUP.toFixed(4),
+        products: productsArray,
+        lots: warehouse.lots,
       });
-    }
 
-    // Calcular totales generales
-    const overallByCurrency = new Map<string, { currency: string; code: string; totalCost: number; totalSale: number; productCount: number }>();
-    let totalProducts = 0;
-
-    for (const warehouse of byWarehouse) {
-      totalProducts += warehouse.productCount;
-      for (const curr of warehouse.byCurrency) {
-        if (!overallByCurrency.has(curr.code)) {
-          overallByCurrency.set(curr.code, {
-            currency: curr.currency,
-            code: curr.code,
-            totalCost: 0,
-            totalSale: 0,
-            productCount: 0,
-          });
-        }
-        const overall = overallByCurrency.get(curr.code)!;
-        overall.totalCost += parseFloat(curr.totalCost);
-        overall.totalSale += parseFloat(curr.totalSale);
-        overall.productCount += curr.productCount;
-      }
+      overallTotalCostCUP += warehouse.totalCostCUP;
+      overallTotalProducts += warehouse.products.size;
     }
 
     return {
       byWarehouse,
       overall: {
-        totalProducts,
-        byCurrency: Array.from(overallByCurrency.values()).map((c) => ({
-          currency: c.currency,
-          code: c.code,
-          totalCost: c.totalCost.toFixed(2),
-          totalSale: c.totalSale.toFixed(2),
-          productCount: c.productCount,
-        })),
+        totalProducts: overallTotalProducts,
+        totalCostCUP: overallTotalCostCUP.toFixed(4),
+        baseCurrency: "CUP",
       },
     };
   }
@@ -355,6 +418,7 @@ export class InventoryService {
         quantity: inventoryMovements.quantity,
         reference: inventoryMovements.reference,
         reason: inventoryMovements.reason,
+        lotId: inventoryMovements.lotId,
         createdAt: inventoryMovements.createdAt,
       })
       .from(inventoryMovements)
@@ -363,6 +427,27 @@ export class InventoryService {
       .where(and(...conditions))
       .orderBy(desc(inventoryMovements.createdAt));
 
-    return adjustments;
+    // Enriquecer con info del lote
+    const adjustmentsWithLot = await Promise.all(
+      adjustments.map(async (adj) => {
+        if (adj.lotId) {
+          const [lot] = await db
+            .select({
+              lotCode: inventoryLots.lotCode,
+              unitCostBase: inventoryLots.unitCostBase,
+            })
+            .from(inventoryLots)
+            .where(eq(inventoryLots.id, adj.lotId));
+          return {
+            ...adj,
+            lotCode: lot?.lotCode || null,
+            unitCostCUP: lot?.unitCostBase || null,
+          };
+        }
+        return { ...adj, lotCode: null, unitCostCUP: null };
+      })
+    );
+
+    return adjustmentsWithLot;
   }
 }

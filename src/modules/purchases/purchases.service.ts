@@ -2,12 +2,16 @@ import { db } from "../../db/connection";
 import { purchases } from "../../db/schema/purchases";
 import { purchasesDetail } from "../../db/schema/purchases_detail";
 import { inventoryMovements } from "../../db/schema/inventory_movements";
-import { inventory } from "../../db/schema/inventory";
+import { inventoryLots } from "../../db/schema/inventory_lots";
 import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { normalizeBusinessDate } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
+import { lotService } from "../inventory/lots.service";
+
+// ID de la moneda base (CUP)
+const BASE_CURRENCY_ID = 1;
 
 export class PurchasesService {
   // Generar número de factura auto-incremental
@@ -29,10 +33,10 @@ export class PurchasesService {
     return `FC-${year}-${nextNumber.toString().padStart(5, "0")}`;
   }
 
-  // Obtener tasa de cambio del día
-  private async getExchangeRate(fromCurrencyId: number, toCurrencyId: number, date: string) {
-    if (fromCurrencyId === toCurrencyId) {
-      return null; // No necesita conversión
+  // Obtener tasa de cambio del día (de moneda origen a CUP)
+  private async getExchangeRateToCUP(fromCurrencyId: number, date: string): Promise<number> {
+    if (fromCurrencyId === BASE_CURRENCY_ID) {
+      return 1; // Ya está en CUP
     }
 
     const [rate] = await db
@@ -41,14 +45,14 @@ export class PurchasesService {
       .where(
         and(
           eq(exchangeRates.fromCurrencyId, fromCurrencyId),
-          eq(exchangeRates.toCurrencyId, toCurrencyId),
+          eq(exchangeRates.toCurrencyId, BASE_CURRENCY_ID),
           sql`${exchangeRates.date} = ${date}`
         )
       );
 
     if (!rate) {
       throw new NotFoundError(
-        `No existe tasa de cambio para la fecha ${date} entre las monedas especificadas. Debe crearla antes de continuar.`
+        `No existe tasa de cambio para la fecha ${date} de la moneda ID ${fromCurrencyId} a CUP. Debe crearla antes de continuar.`
       );
     }
 
@@ -72,13 +76,16 @@ export class PurchasesService {
   }) {
     // Generar número de factura
     const invoiceNumber = await this.generateInvoiceNumber();
+    const normalizedDate = normalizeBusinessDate(data.date);
 
-    // Validar conversión de monedas para cada producto
+    // Obtener tasa de cambio de la moneda de la factura a CUP
+    const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, normalizedDate);
+
     let subtotal = 0;
 
-    const detailsWithConversion = await Promise.all(
+    const detailsProcessed = await Promise.all(
       data.details.map(async (detail) => {
-        // Obtener moneda del producto
+        // Obtener producto para validar
         const [product] = await db
           .select()
           .from(products)
@@ -88,29 +95,17 @@ export class PurchasesService {
           throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
-        const productCurrencyId = product.currencyId;
-        let convertedUnitCost = detail.unitCost;
-        let exchangeRateUsed = null;
-
-        // Si las monedas son diferentes, obtener tasa
-        if (productCurrencyId !== data.currencyId) {
-          exchangeRateUsed = await this.getExchangeRate(
-            productCurrencyId,
-            data.currencyId,
-            data.date
-          );
-          convertedUnitCost = detail.unitCost * (exchangeRateUsed || 1);
-        }
-
-        const lineSubtotal = convertedUnitCost * detail.quantity;
+        // El costo convertido a CUP
+        const convertedUnitCost = detail.unitCost * exchangeRateToCUP;
+        const lineSubtotal = detail.unitCost * detail.quantity;
         subtotal += lineSubtotal;
 
         return {
           productId: detail.productId,
           quantity: detail.quantity.toString(),
           unitCost: detail.unitCost.toString(),
-          originalCurrencyId: productCurrencyId,
-          exchangeRateUsed: exchangeRateUsed?.toString() || null,
+          originalCurrencyId: data.currencyId,
+          exchangeRateUsed: exchangeRateToCUP.toString(),
           convertedUnitCost: convertedUnitCost.toString(),
           subtotal: lineSubtotal.toString(),
         };
@@ -122,7 +117,7 @@ export class PurchasesService {
       invoiceNumber,
       supplierName: data.supplierName || null,
       supplierPhone: data.supplierPhone || null,
-      date: new Date(normalizeBusinessDate(data.date)),
+      date: new Date(normalizedDate),
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
       status: "PENDING",
@@ -136,7 +131,7 @@ export class PurchasesService {
 
     // Insertar detalles
     await db.insert(purchasesDetail).values(
-      detailsWithConversion.map((detail) => ({
+      detailsProcessed.map((detail) => ({
         purchaseId,
         ...detail,
       }))
@@ -172,6 +167,7 @@ export class PurchasesService {
         exchangeRateUsed: purchasesDetail.exchangeRateUsed,
         convertedUnitCost: purchasesDetail.convertedUnitCost,
         subtotal: purchasesDetail.subtotal,
+        lotId: purchasesDetail.lotId,
       })
       .from(purchasesDetail)
       .innerJoin(products, eq(purchasesDetail.productId, products.id))
@@ -180,7 +176,7 @@ export class PurchasesService {
     return { ...purchase, details };
   }
 
-  // Aceptar factura de compra (genera INVOICE_ENTRY y actualiza inventario)
+  // Aceptar factura de compra (genera lotes y movimientos)
   async acceptPurchase(id: number, userId: number) {
     const purchase = await this.getPurchaseById(id);
 
@@ -198,9 +194,33 @@ export class PurchasesService {
       })
       .where(eq(purchases.id, id));
 
-    // Crear movimientos APPROVED y actualizar inventario
+    // Crear lotes y movimientos por cada línea de detalle
+    let lineNumber = 1;
     for (const detail of purchase.details) {
-      // Crear movimiento INVOICE_ENTRY
+      const quantity = parseFloat(detail.quantity);
+      const originalUnitCost = parseFloat(detail.unitCost);
+      const exchangeRate = parseFloat(detail.exchangeRateUsed || "1");
+
+      // Crear lote de inventario
+      const lotId = await lotService.createLot({
+        productId: detail.productId,
+        warehouseId: purchase.warehouseId,
+        quantity,
+        originalCurrencyId: detail.originalCurrencyId || purchase.currencyId,
+        originalUnitCost,
+        exchangeRate,
+        sourceType: "PURCHASE",
+        sourceId: id,
+        entryDate: purchase.date.toISOString().split("T")[0],
+      }, lineNumber);
+
+      // Actualizar el detalle con la referencia al lote
+      await db
+        .update(purchasesDetail)
+        .set({ lotId })
+        .where(eq(purchasesDetail.id, detail.id));
+
+      // Crear movimiento de inventario (para auditoría general)
       await db.insert(inventoryMovements).values({
         type: "INVOICE_ENTRY",
         status: "APPROVED",
@@ -209,17 +229,13 @@ export class PurchasesService {
         quantity: detail.quantity,
         reference: purchase.invoiceNumber,
         reason: `Entrada por factura ${purchase.invoiceNumber}`,
+        lotId,
       });
 
-      // Actualizar inventario
-      await this.updateInventory(
-        purchase.warehouseId,
-        detail.productId,
-        parseFloat(detail.quantity)
-      );
+      lineNumber++;
     }
 
-    return { message: "Factura de compra aceptada exitosamente" };
+    return { message: "Factura de compra aceptada exitosamente. Lotes creados." };
   }
 
   // Cancelar factura de compra
@@ -230,7 +246,53 @@ export class PurchasesService {
       throw new ConflictError("La factura ya está cancelada");
     }
 
-    const wasApproved = purchase.status === "APPROVED";
+    // Si estaba aprobada, verificar que los lotes no hayan sido consumidos
+    if (purchase.status === "APPROVED") {
+      // Obtener lotes de esta compra
+      const purchaseLots = await lotService.getLotsByPurchase(id);
+
+      for (const lot of purchaseLots) {
+        // Verificar si el lote tiene consumos
+        const hasConsumptions = await lotService.hasConsumptions(lot.id);
+        if (hasConsumptions) {
+          throw new ConflictError(
+            `No se puede cancelar la compra porque el lote ${lot.lotCode} ya tiene consumos registrados. ` +
+            `Solo se pueden cancelar compras cuyos lotes no hayan sido vendidos, trasladados o ajustados.`
+          );
+        }
+
+        // Verificar si la cantidad actual es menor a la inicial (consumo parcial sin registro)
+        if (parseFloat(lot.currentQuantity) < parseFloat(lot.initialQuantity)) {
+          throw new ConflictError(
+            `No se puede cancelar la compra porque el lote ${lot.lotCode} tiene consumos parciales.`
+          );
+        }
+      }
+
+      // Si llegamos aquí, podemos cancelar: eliminar lotes y revertir inventario
+      for (const lot of purchaseLots) {
+        // Marcar lote como agotado (o podríamos eliminarlo)
+        await db
+          .update(inventoryLots)
+          .set({ 
+            status: "EXHAUSTED",
+            currentQuantity: "0",
+          })
+          .where(eq(inventoryLots.id, lot.id));
+
+        // Crear movimiento de reversión
+        await db.insert(inventoryMovements).values({
+          type: "ADJUSTMENT_EXIT",
+          status: "APPROVED",
+          warehouseId: lot.warehouseId,
+          productId: lot.productId,
+          quantity: lot.initialQuantity,
+          reference: purchase.invoiceNumber,
+          reason: `Reversión por cancelación de factura ${purchase.invoiceNumber}: ${cancellationReason}`,
+          lotId: lot.id,
+        });
+      }
+    }
 
     // Actualizar estado
     await db
@@ -242,29 +304,6 @@ export class PurchasesService {
         cancelledAt: new Date(),
       })
       .where(eq(purchases.id, id));
-
-    // Si estaba aprobada, revertir inventario
-    if (wasApproved) {
-      for (const detail of purchase.details) {
-        // Crear movimiento de reversión ADJUSTMENT_EXIT
-        await db.insert(inventoryMovements).values({
-          type: "ADJUSTMENT_EXIT",
-          status: "APPROVED",
-          warehouseId: purchase.warehouseId,
-          productId: detail.productId,
-          quantity: detail.quantity,
-          reference: purchase.invoiceNumber,
-          reason: `Reversión por cancelación de factura ${purchase.invoiceNumber}: ${cancellationReason}`,
-        });
-
-        // Restar del inventario
-        await this.updateInventory(
-          purchase.warehouseId,
-          detail.productId,
-          -parseFloat(detail.quantity)
-        );
-      }
-    }
 
     return { message: "Factura cancelada exitosamente" };
   }
@@ -287,38 +326,4 @@ export class PurchasesService {
       .where(and(...conditions))
       .orderBy(desc(purchases.cancelledAt));
   }
-
-  // Método privado para actualizar inventario
-  private async updateInventory(
-    warehouseId: number,
-    productId: number,
-    quantityChange: number
-  ) {
-    const [existingStock] = await db
-      .select()
-      .from(inventory)
-      .where(
-        and(
-          eq(inventory.warehouseId, warehouseId),
-          eq(inventory.productId, productId)
-        )
-      );
-
-    if (existingStock) {
-      const newQuantity =
-        parseFloat(existingStock.currentQuantity) + quantityChange;
-
-      await db
-        .update(inventory)
-        .set({ currentQuantity: newQuantity.toString() })
-        .where(eq(inventory.id, existingStock.id));
-    } else {
-      await db.insert(inventory).values({
-        warehouseId,
-        productId,
-        currentQuantity: quantityChange.toString(),
-      });
-    }
-  }
 }
-

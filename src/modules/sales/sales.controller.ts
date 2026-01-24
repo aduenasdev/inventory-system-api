@@ -93,3 +93,30 @@ export const getSalesTotalsReport = async (req: Request, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// ========== ENDPOINTS DE LOTES ==========
+
+export const getSaleLotConsumptions = async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const consumptions = await salesService.getSaleLotConsumptions(id);
+    res.json(consumptions);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const getSalesMarginReport = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const { startDate, endDate, warehouseId } = req.query;
+    const report = await salesService.getSalesMarginReport(
+      startDate as string,
+      endDate as string,
+      warehouseId ? Number(warehouseId) : undefined
+    );
+    res.json(report);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
