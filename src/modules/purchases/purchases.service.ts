@@ -271,22 +271,36 @@ export class PurchasesService {
     userId: number, 
     userPermissions: string[], 
     startDate: string, 
-    endDate: string
+    endDate: string,
+    warehouseId?: number,
+    status?: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ) {
     const hasReadAll = userPermissions.includes("purchases.read");
     const hasCancel = userPermissions.includes("purchases.cancel");
     const hasAccept = userPermissions.includes("purchases.accept");
     const hasCreate = userPermissions.includes("purchases.create");
 
-    // Condición base: siempre filtrar por rango de fechas
-    const dateCondition = and(
+    // Condiciones base
+    const baseConditions: any[] = [
       gte(purchases.date, sql`${startDate}`),
       lte(purchases.date, sql`${endDate}`)
-    );
+    ];
 
-    // Si tiene purchases.read → ve TODAS (dentro del rango)
+    // Filtro opcional por almacén
+    if (warehouseId) {
+      baseConditions.push(eq(purchases.warehouseId, warehouseId));
+    }
+
+    // Filtro opcional por estado (solo si tiene permiso para ver ese estado)
+    if (status) {
+      baseConditions.push(eq(purchases.status, status));
+    }
+
+    const baseCondition = and(...baseConditions);
+
+    // Si tiene purchases.read → ve TODAS (dentro del rango y filtros)
     if (hasReadAll) {
-      return await this.getPurchasesWithUserNames(dateCondition);
+      return await this.getPurchasesWithUserNames(baseCondition);
     }
 
     // Construir condiciones según permisos
@@ -314,9 +328,9 @@ export class PurchasesService {
       return [];
     }
 
-    // Combinar: (permisos OR) AND (rango de fechas)
+    // Combinar: (permisos OR) AND (condiciones base)
     return await this.getPurchasesWithUserNames(
-      and(dateCondition, or(...permissionConditions))
+      and(baseCondition, or(...permissionConditions))
     );
   }
 

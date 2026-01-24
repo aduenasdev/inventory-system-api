@@ -28,13 +28,20 @@ export const getAllPurchases = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
     const userPermissions: string[] = (res.locals.user as any).permissions || [];
-    const { startDate, endDate } = req.query as { startDate: string; endDate?: string };
+    const { startDate, endDate, warehouseId, status } = req.query as { 
+      startDate: string; 
+      endDate?: string;
+      warehouseId?: string;
+      status?: 'PENDING' | 'APPROVED' | 'CANCELLED';
+    };
     
     const purchases = await purchasesService.getAllPurchases(
       userId, 
       userPermissions, 
       startDate, 
-      endDate || startDate  // Si no hay endDate, usar startDate (un solo día)
+      endDate || startDate,  // Si no hay endDate, usar startDate (un solo día)
+      warehouseId ? Number(warehouseId) : undefined,
+      status
     );
     res.json(purchases);
   } catch (error: any) {

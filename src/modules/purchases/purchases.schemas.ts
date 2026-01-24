@@ -51,5 +51,7 @@ export const getAllPurchasesSchema = z.object({
   query: z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+    warehouseId: z.string().transform(Number).optional(),
+    status: z.enum(["PENDING", "APPROVED", "CANCELLED"]).optional(),
   }),
 });
