@@ -44,7 +44,7 @@ export const getProductKardex = async (req: Request, res: Response) => {
 
 export const createAdjustment = async (req: Request, res: Response) => {
   try {
-    const userId = (res.locals.user as any).userId;
+    const userId = (res.locals.user as any).id;
     const movement = await inventoryService.createAdjustment({
       ...req.body,
       userId,
@@ -61,7 +61,7 @@ export const createAdjustment = async (req: Request, res: Response) => {
 
 export const getInventoryValueReport = async (req: Request, res: Response) => {
   try {
-    const userId = (res.locals.user as any).userId;
+    const userId = (res.locals.user as any).id;
     const { warehouseId } = req.query;
     const report = await inventoryService.getInventoryValueReport(
       userId,
@@ -75,7 +75,7 @@ export const getInventoryValueReport = async (req: Request, res: Response) => {
 
 export const getAdjustmentsReport = async (req: Request, res: Response) => {
   try {
-    const userId = (res.locals.user as any).userId;
+    const userId = (res.locals.user as any).id;
     const { startDate, endDate, warehouseId } = req.query;
     const report = await inventoryService.getAdjustmentsReport(
       userId,

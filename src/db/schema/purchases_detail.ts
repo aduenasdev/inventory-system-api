@@ -11,7 +11,7 @@ export const purchasesDetail = mysqlTable("purchases_detail", {
   unitCost: decimal("unit_cost", { precision: 18, scale: 4 }).notNull(),
   
   // Auditoría de conversión de moneda
-  originalCurrencyId: int("original_currency_id").notNull().references(() => currencies.id),
+  originalCurrencyId: int("original_currency_id").references(() => currencies.id),
   exchangeRateUsed: decimal("exchange_rate_used", { precision: 18, scale: 6 }),
   convertedUnitCost: decimal("converted_unit_cost", { precision: 18, scale: 4 }),
   

@@ -35,6 +35,19 @@ export function normalizeBusinessDate(date: string | Date): string {
 }
 
 /**
+ * Obtiene la fecha actual en zona horaria local como string YYYY-MM-DD
+ * USAR ESTO en lugar de new Date().toISOString().split("T")[0]
+ * porque toISOString() usa UTC y puede dar fecha incorrecta
+ */
+export function getTodayDateString(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Valida que una fecha esté dentro de los últimos N días
  */
 export function isWithinLastDays(date: string | Date, days: number): boolean {

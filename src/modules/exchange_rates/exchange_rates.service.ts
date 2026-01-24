@@ -32,7 +32,7 @@ export async function createExchangeRate(data: {
       and(
         eq(exchangeRates.fromCurrencyId, fromCurrencyId),
         eq(exchangeRates.toCurrencyId, data.toCurrencyId),
-        sql`${exchangeRates.date} = ${normalizedDate}`
+        sql`DATE(${exchangeRates.date}) = ${normalizedDate}`
       )
     );
 
@@ -193,7 +193,7 @@ export async function createBatchExchangeRates(data: {
         and(
           eq(exchangeRates.fromCurrencyId, fromCurrencyId),
           eq(exchangeRates.toCurrencyId, rateData.toCurrencyId),
-          sql`${exchangeRates.date} = ${normalizedDate}`
+          sql`DATE(${exchangeRates.date}) = ${normalizedDate}`
         )
       );
 

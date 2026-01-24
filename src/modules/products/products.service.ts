@@ -15,14 +15,14 @@ import { inventoryMovements } from "../../db/schema/inventory_movements";
 import { inventoryLots } from "../../db/schema/inventory_lots";
 import { promises as fs } from "fs";
 import path from "path";
+import { getTodayDateString } from "../../utils/date";
 
 /**
  * Genera código de producto automático con formato YYYY-MM-DD-XXX
  * XXX es un contador diario que reinicia cada día
  */
 async function generateProductCode(): Promise<string> {
-  const today = new Date();
-  const datePrefix = today.toISOString().split("T")[0]; // YYYY-MM-DD
+  const datePrefix = getTodayDateString(); // YYYY-MM-DD
   
   // Buscar productos con código que empiece con la fecha de hoy
   const pattern = `${datePrefix}-%`;

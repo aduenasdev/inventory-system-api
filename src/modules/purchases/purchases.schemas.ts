@@ -4,10 +4,10 @@ export const createPurchaseSchema = z.object({
   body: z.object({
     supplierName: z.string().optional(),
     supplierPhone: z.string().optional(),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
     warehouseId: z.number().int().positive(),
     currencyId: z.number().int().positive(),
     notes: z.string().optional(),
+    autoApprove: z.boolean().optional().default(false), // Si true y tiene permiso, crea directo en APPROVED
     details: z.array(
       z.object({
         productId: z.number().int().positive(),
@@ -43,5 +43,13 @@ export const getCancelledPurchasesReportSchema = z.object({
   query: z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }),
+});
+
+// Schema para listar compras con rango de fechas obligatorio
+export const getAllPurchasesSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
   }),
 });

@@ -1,5 +1,5 @@
 import { db } from "../../db/connection";
-import { units } from "../../db/schema/units";
+import { units, UnitType } from "../../db/schema/units";
 import { products } from "../../db/schema/products";
 import { eq } from "drizzle-orm";
 import { ConflictError, ValidationError } from "../../utils/errors";
@@ -8,7 +8,7 @@ export async function createUnit(data: {
   name: string;
   shortName: string;
   description?: string;
-  type: string;
+  type: UnitType;
 }) {
   // Verificar si ya existe una unidad con ese nombre
   const existingName = await db.select().from(units).where(eq(units.name, data.name));
@@ -47,7 +47,7 @@ export async function updateUnit(
     name?: string;
     shortName?: string;
     description?: string;
-    type?: string;
+    type?: UnitType;
   }
 ) {
   const updateData: any = {};

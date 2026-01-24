@@ -9,6 +9,7 @@ import { currencies } from "../../db/schema/currencies";
 import { eq, and, sql, desc, gte, lte, inArray, gt, asc } from "drizzle-orm";
 import { ForbiddenError, ValidationError } from "../../utils/errors";
 import { lotService } from "./lots.service";
+import { getTodayDateString, normalizeBusinessDate } from "../../utils/date";
 
 export class InventoryService {
   // Obtener stock actual de un producto en un almacén (desde cache o lotes)
@@ -127,7 +128,7 @@ export class InventoryService {
         sourceType: "ADJUSTMENT",
         sourceId: undefined,
         sourceLotId: undefined,
-        entryDate: new Date().toISOString().split("T")[0],
+        entryDate: getTodayDateString(),
       });
 
       // Registrar movimiento

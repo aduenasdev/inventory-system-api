@@ -5,8 +5,8 @@ import { inventoryMovements } from "../../db/schema/inventory_movements";
 import { inventoryLots } from "../../db/schema/inventory_lots";
 import { products } from "../../db/schema/products";
 import { exchangeRates } from "../../db/schema/exchange_rates";
-import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
-import { normalizeBusinessDate } from "../../utils/date";
+import { eq, and, sql, desc, gte, lte, or, inArray } from "drizzle-orm";
+import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
@@ -34,19 +34,21 @@ export class PurchasesService {
   }
 
   // Obtener tasa de cambio del día (de moneda origen a CUP)
+  // Las tasas se guardan como CUP → X, así que buscamos CUP → fromCurrency y calculamos el inverso
   private async getExchangeRateToCUP(fromCurrencyId: number, date: string): Promise<number> {
     if (fromCurrencyId === BASE_CURRENCY_ID) {
       return 1; // Ya está en CUP
     }
 
+    // Buscar tasa CUP → fromCurrency (así es como se guardan)
     const [rate] = await db
       .select()
       .from(exchangeRates)
       .where(
         and(
-          eq(exchangeRates.fromCurrencyId, fromCurrencyId),
-          eq(exchangeRates.toCurrencyId, BASE_CURRENCY_ID),
-          sql`${exchangeRates.date} = ${date}`
+          eq(exchangeRates.fromCurrencyId, BASE_CURRENCY_ID),
+          eq(exchangeRates.toCurrencyId, fromCurrencyId),
+          sql`DATE(${exchangeRates.date}) = ${date}`
         )
       );
 
@@ -56,27 +58,40 @@ export class PurchasesService {
       );
     }
 
-    return parseFloat(rate.rate);
+    // La tasa guardada es CUP → X (ej: 1 CUP = 0.0025 USD)
+    // Necesitamos X → CUP, así que calculamos el inverso (ej: 1 USD = 400 CUP)
+    const rateValue = parseFloat(rate.rate);
+    if (rateValue === 0) {
+      throw new ValidationError("La tasa de cambio no puede ser cero");
+    }
+    
+    return 1 / rateValue;
   }
 
   // Crear factura de compra
   async createPurchase(data: {
     supplierName?: string;
     supplierPhone?: string;
-    date: string;
     warehouseId: number;
     currencyId: number;
     notes?: string;
+    autoApprove?: boolean;
     details: Array<{
       productId: number;
       quantity: number;
       unitCost: number;
     }>;
     userId: number;
+    userPermissions: string[];
   }) {
+    // Verificar si puede auto-aprobar
+    const canAutoApprove = data.autoApprove && data.userPermissions.includes("purchases.accept");
+    
     // Generar número de factura
     const invoiceNumber = await this.generateInvoiceNumber();
-    const normalizedDate = normalizeBusinessDate(data.date);
+    
+    // Usar fecha actual del servidor (zona horaria local)
+    const normalizedDate = getTodayDateString();
 
     // Obtener tasa de cambio de la moneda de la factura a CUP
     const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, normalizedDate);
@@ -112,19 +127,21 @@ export class PurchasesService {
       })
     );
 
-    // Crear factura
+    // Crear factura (PENDING o APPROVED según autoApprove)
     const [purchase] = (await db.insert(purchases).values({
       invoiceNumber,
       supplierName: data.supplierName || null,
       supplierPhone: data.supplierPhone || null,
-      date: new Date(normalizedDate),
+      date: sql`${normalizedDate}`, // Fecha como string SQL directo
       warehouseId: data.warehouseId,
       currencyId: data.currencyId,
-      status: "PENDING",
+      status: canAutoApprove ? "APPROVED" : "PENDING",
       subtotal: subtotal.toString(),
       total: subtotal.toString(),
       notes: data.notes || null,
       createdBy: data.userId,
+      acceptedBy: canAutoApprove ? data.userId : null,
+      acceptedAt: canAutoApprove ? new Date() : null,
     })) as any;
 
     const purchaseId = purchase.insertId;
@@ -137,12 +154,128 @@ export class PurchasesService {
       }))
     );
 
-    return { id: purchaseId, invoiceNumber, subtotal, total: subtotal };
+    // Si es auto-aprobada, crear lotes y movimientos inmediatamente
+    if (canAutoApprove) {
+      let lineNumber = 1;
+      for (const detail of detailsProcessed) {
+        const quantity = parseFloat(detail.quantity);
+        const originalUnitCost = parseFloat(detail.unitCost);
+        const exchangeRate = parseFloat(detail.exchangeRateUsed);
+
+        // Crear lote de inventario
+        const lotId = await lotService.createLot({
+          productId: detail.productId,
+          warehouseId: data.warehouseId,
+          quantity,
+          originalCurrencyId: detail.originalCurrencyId,
+          originalUnitCost,
+          exchangeRate,
+          sourceType: "PURCHASE",
+          sourceId: purchaseId,
+          entryDate: normalizedDate,
+        }, lineNumber);
+
+        // Actualizar el detalle con la referencia al lote
+        const [detailRow] = await db
+          .select()
+          .from(purchasesDetail)
+          .where(
+            and(
+              eq(purchasesDetail.purchaseId, purchaseId),
+              eq(purchasesDetail.productId, detail.productId)
+            )
+          );
+        
+        if (detailRow) {
+          await db
+            .update(purchasesDetail)
+            .set({ lotId })
+            .where(eq(purchasesDetail.id, detailRow.id));
+        }
+
+        // Crear movimiento de inventario
+        await db.insert(inventoryMovements).values({
+          type: "INVOICE_ENTRY",
+          status: "APPROVED",
+          warehouseId: data.warehouseId,
+          productId: detail.productId,
+          quantity: detail.quantity,
+          reference: invoiceNumber,
+          reason: `Entrada por factura ${invoiceNumber}`,
+          lotId,
+        });
+
+        lineNumber++;
+      }
+    }
+
+    return { 
+      id: purchaseId, 
+      invoiceNumber, 
+      subtotal, 
+      total: subtotal,
+      status: canAutoApprove ? "APPROVED" : "PENDING"
+    };
   }
 
-  // Obtener todas las compras
-  async getAllPurchases() {
-    return await db.select().from(purchases).orderBy(desc(purchases.createdAt));
+  // Obtener compras filtradas según permisos del usuario y rango de fechas
+  async getAllPurchases(
+    userId: number, 
+    userPermissions: string[], 
+    startDate: string, 
+    endDate: string
+  ) {
+    const hasReadAll = userPermissions.includes("purchases.read");
+    const hasCancel = userPermissions.includes("purchases.cancel");
+    const hasAccept = userPermissions.includes("purchases.accept");
+    const hasCreate = userPermissions.includes("purchases.create");
+
+    // Condición base: siempre filtrar por rango de fechas
+    const dateCondition = and(
+      gte(purchases.date, sql`${startDate}`),
+      lte(purchases.date, sql`${endDate}`)
+    );
+
+    // Si tiene purchases.read → ve TODAS (dentro del rango)
+    if (hasReadAll) {
+      return await db
+        .select()
+        .from(purchases)
+        .where(dateCondition)
+        .orderBy(desc(purchases.createdAt));
+    }
+
+    // Construir condiciones según permisos
+    const permissionConditions: any[] = [];
+
+    // Si tiene purchases.cancel → ve PENDING + APPROVED
+    if (hasCancel) {
+      permissionConditions.push(
+        inArray(purchases.status, ["PENDING", "APPROVED"])
+      );
+    }
+
+    // Si tiene purchases.accept → ve PENDING
+    if (hasAccept && !hasCancel) {
+      permissionConditions.push(eq(purchases.status, "PENDING"));
+    }
+
+    // Si solo tiene purchases.create → ve solo las suyas
+    if (hasCreate) {
+      permissionConditions.push(eq(purchases.createdBy, userId));
+    }
+
+    // Si no tiene ningún permiso relevante, retornar vacío
+    if (permissionConditions.length === 0) {
+      return [];
+    }
+
+    // Combinar: (permisos OR) AND (rango de fechas)
+    return await db
+      .select()
+      .from(purchases)
+      .where(and(dateCondition, or(...permissionConditions)))
+      .orderBy(desc(purchases.createdAt));
   }
 
   // Obtener compra por ID con detalles
@@ -211,7 +344,7 @@ export class PurchasesService {
         exchangeRate,
         sourceType: "PURCHASE",
         sourceId: id,
-        entryDate: purchase.date.toISOString().split("T")[0],
+        entryDate: normalizeBusinessDate(purchase.date),
       }, lineNumber);
 
       // Actualizar el detalle con la referencia al lote

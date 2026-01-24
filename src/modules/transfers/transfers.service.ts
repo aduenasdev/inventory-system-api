@@ -7,7 +7,7 @@ import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { users } from "../../db/schema/users";
 import { eq, and, or, desc, sql, gte, lte, gt, asc } from "drizzle-orm";
-import { normalizeBusinessDate } from "../../utils/date";
+import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
 import { NotFoundError, ValidationError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
@@ -243,7 +243,7 @@ export class TransfersService {
               sourceType: "TRANSFER",
               sourceId: id,
               sourceLotId: consumption.lotId,
-              entryDate: new Date().toISOString().split("T")[0],
+              entryDate: getTodayDateString(),
             });
 
             await db.insert(inventoryMovements).values({

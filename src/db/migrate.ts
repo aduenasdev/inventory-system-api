@@ -133,7 +133,7 @@ async function main() {
       name VARCHAR(100) NOT NULL UNIQUE,
       short_name VARCHAR(20) NOT NULL UNIQUE,
       description TEXT,
-      type VARCHAR(50) NOT NULL,
+      type ENUM('weight', 'volume', 'length', 'countable', 'package') NOT NULL,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

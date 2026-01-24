@@ -11,7 +11,7 @@ import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
 import { eq, and, sql, desc, gte, lte, inArray } from "drizzle-orm";
-import { normalizeBusinessDate } from "../../utils/date";
+import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
 import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
@@ -38,29 +38,71 @@ export class SalesService {
   }
 
   // Obtener tasa de cambio
-  private async getExchangeRate(fromCurrencyId: number, toCurrencyId: number, date: string) {
+  // Las tasas se guardan como CUP (1) → X, así que manejamos ambas direcciones
+  private async getExchangeRate(fromCurrencyId: number, toCurrencyId: number, date: string): Promise<number | null> {
     if (fromCurrencyId === toCurrencyId) {
       return null;
     }
 
-    const [rate] = await db
-      .select()
-      .from(exchangeRates)
-      .where(
-        and(
-          eq(exchangeRates.fromCurrencyId, fromCurrencyId),
-          eq(exchangeRates.toCurrencyId, toCurrencyId),
-          sql`${exchangeRates.date} = ${date}`
-        )
-      );
+    const BASE_CURRENCY_ID = 1; // CUP
 
-    if (!rate) {
-      throw new NotFoundError(
-        `No existe tasa de cambio para la fecha ${date} entre las monedas especificadas. Debe crearla antes de continuar.`
-      );
+    // Caso 1: Buscamos X → CUP (necesitamos inverso de CUP → X)
+    if (toCurrencyId === BASE_CURRENCY_ID) {
+      const [rate] = await db
+        .select()
+        .from(exchangeRates)
+        .where(
+          and(
+            eq(exchangeRates.fromCurrencyId, BASE_CURRENCY_ID),
+            eq(exchangeRates.toCurrencyId, fromCurrencyId),
+            sql`DATE(${exchangeRates.date}) = ${date}`
+          )
+        );
+
+      if (!rate) {
+        throw new NotFoundError(
+          `No existe tasa de cambio para la fecha ${date} de la moneda ID ${fromCurrencyId} a CUP. Debe crearla antes de continuar.`
+        );
+      }
+
+      const rateValue = parseFloat(rate.rate);
+      return rateValue !== 0 ? 1 / rateValue : null;
     }
 
-    return parseFloat(rate.rate);
+    // Caso 2: Buscamos CUP → X (directo)
+    if (fromCurrencyId === BASE_CURRENCY_ID) {
+      const [rate] = await db
+        .select()
+        .from(exchangeRates)
+        .where(
+          and(
+            eq(exchangeRates.fromCurrencyId, BASE_CURRENCY_ID),
+            eq(exchangeRates.toCurrencyId, toCurrencyId),
+            sql`DATE(${exchangeRates.date}) = ${date}`
+          )
+        );
+
+      if (!rate) {
+        throw new NotFoundError(
+          `No existe tasa de cambio para la fecha ${date} de CUP a la moneda ID ${toCurrencyId}. Debe crearla antes de continuar.`
+        );
+      }
+
+      return parseFloat(rate.rate);
+    }
+
+    // Caso 3: X → Y (ambas diferentes de CUP) - convertir via CUP
+    // X → CUP → Y = (1/rate_CUP_X) * rate_CUP_Y
+    const rateXtoCUP: number | null = await this.getExchangeRate(fromCurrencyId, BASE_CURRENCY_ID, date);
+    const rateCUPtoY: number | null = await this.getExchangeRate(BASE_CURRENCY_ID, toCurrencyId, date);
+    
+    if (rateXtoCUP && rateCUPtoY) {
+      return rateXtoCUP * rateCUPtoY;
+    }
+
+    throw new NotFoundError(
+      `No existe tasa de cambio para la fecha ${date} entre las monedas especificadas. Debe crearla antes de continuar.`
+    );
   }
 
   // Verificar stock disponible (ahora desde lotes)
@@ -337,7 +379,7 @@ export class SalesService {
             exchangeRate: parseFloat(consumption.exchangeRate),
             sourceType: "ADJUSTMENT",
             sourceId: id,
-            entryDate: new Date().toISOString().split("T")[0],
+            entryDate: getTodayDateString(),
           });
 
           // Crear movimiento de reversión
@@ -599,7 +641,7 @@ export class SalesService {
         
         if (sale.currencyId !== targetCurrencyId) {
           // Buscar tasa de cambio
-          const saleDate = new Date(sale.date).toISOString().split("T")[0];
+          const saleDate = normalizeBusinessDate(sale.date);
           const rate = await this.getExchangeRate(sale.currencyId, targetCurrencyId, saleDate);
           if (rate) {
             convertedTotal = parseFloat(sale.total) * rate;

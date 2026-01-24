@@ -16,15 +16,23 @@ import {
   acceptPurchaseSchema,
   cancelPurchaseSchema,
   getCancelledPurchasesReportSchema,
+  getAllPurchasesSchema,
 } from "./purchases.schemas";
 
 const router = Router();
 
-// GET /purchases - Listar todas las compras
+// GET /purchases - Listar compras según permisos del usuario
+// Requiere rango de fechas: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+// Si solo se envía startDate, muestra las de ese día
+// Filtrado por permisos:
+// - purchases.read: ve todas
+// - purchases.cancel: ve PENDING + APPROVED  
+// - purchases.accept: ve PENDING
+// - purchases.create: ve solo las que creó
 router.get(
   "/",
   authMiddleware,
-  hasPermission("purchases.read"),
+  validate(getAllPurchasesSchema),
   getAllPurchases
 );
 
