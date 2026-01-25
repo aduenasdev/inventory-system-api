@@ -27,7 +27,19 @@ export class TransfersService {
     }
   }
 
-  // Crear traslado
+  // Validar que el almacén existe
+  private async validateWarehouseExists(warehouseId: number): Promise<void> {
+    const [warehouse] = await db
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(eq(warehouses.id, warehouseId));
+    
+    if (!warehouse) {
+      throw new NotFoundError(`Almacén con ID ${warehouseId} no encontrado`);
+    }
+  }
+
+  // Crear traslado (con transacción)
   async createTransfer(data: {
     date: string;
     originWarehouseId: number;
@@ -43,33 +55,48 @@ export class TransfersService {
       throw new ValidationError("El almacén de origen y destino no pueden ser el mismo");
     }
 
+    // Validaciones previas (fuera de transacción para fallar rápido)
+    await this.validateWarehouseExists(data.originWarehouseId);
+    await this.validateWarehouseExists(data.destinationWarehouseId);
+
+    // Validar que los productos existen
+    for (const detail of data.details) {
+      const [product] = await db.select().from(products).where(eq(products.id, detail.productId));
+      if (!product) {
+        throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
+      }
+    }
+
     // Validar stock para todos los productos
     for (const detail of data.details) {
       await this.checkStock(data.originWarehouseId, detail.productId, detail.quantity);
     }
 
-    // Crear traslado
-    const [transfer] = (await db.insert(transfers).values({
-      date: new Date(normalizeBusinessDate(data.date)),
-      originWarehouseId: data.originWarehouseId,
-      destinationWarehouseId: data.destinationWarehouseId,
-      status: "PENDING",
-      notes: data.notes || null,
-      createdBy: data.userId,
-    })) as any;
+    // Ejecutar en transacción
+    return await db.transaction(async (tx) => {
+      // Crear traslado
+      const [transfer] = (await tx.insert(transfers).values({
+        date: new Date(normalizeBusinessDate(data.date)),
+        originWarehouseId: data.originWarehouseId,
+        destinationWarehouseId: data.destinationWarehouseId,
+        status: "PENDING",
+        notes: data.notes || null,
+        createdBy: data.userId,
+      })) as any;
 
-    const transferId = transfer.insertId;
+      const transferId = transfer.insertId;
 
-    // Insertar detalles
-    await db.insert(transfersDetail).values(
-      data.details.map((detail) => ({
-        transferId,
-        productId: detail.productId,
-        quantity: detail.quantity.toString(),
-      }))
-    );
+      // Insertar detalles
+      for (const detail of data.details) {
+        await tx.insert(transfersDetail).values({
+          transferId,
+          productId: detail.productId,
+          quantity: detail.quantity.toString(),
+        });
+      }
 
-    return { id: transferId, message: "Traslado creado exitosamente" };
+      return { id: transferId, message: "Traslado creado exitosamente" };
+    });
   }
 
   // Obtener todos los traslados
@@ -129,7 +156,7 @@ export class TransfersService {
       .orderBy(desc(transfers.createdAt));
   }
 
-  // Aceptar traslado (consume lotes FIFO del origen y crea lotes en destino)
+  // Aceptar traslado (consume lotes FIFO del origen y crea lotes en destino) - con transacción
   async acceptTransfer(id: number, userId: number) {
     const transfer = await this.getTransferById(id);
 
@@ -137,7 +164,7 @@ export class TransfersService {
       throw new ValidationError("Solo se pueden aceptar traslados en estado PENDING");
     }
 
-    // Revalidar stock al momento de aceptar
+    // Revalidar stock al momento de aceptar (fuera de transacción para fallar rápido)
     for (const detail of transfer.details) {
       await this.checkStock(
         transfer.originWarehouseId,
@@ -146,135 +173,137 @@ export class TransfersService {
       );
     }
 
-    // Actualizar estado de traslado
-    await db
-      .update(transfers)
-      .set({
-        status: "APPROVED",
-        approvedBy: userId,
-        approvedAt: new Date(),
-      })
-      .where(eq(transfers.id, id));
+    // Ejecutar en transacción
+    return await db.transaction(async (tx) => {
+      // Actualizar estado de traslado
+      await tx
+        .update(transfers)
+        .set({
+          status: "APPROVED",
+          approvedBy: userId,
+          approvedAt: new Date(),
+        })
+        .where(eq(transfers.id, id));
 
-    // Procesar cada línea de detalle
-    for (const detail of transfer.details) {
-      const quantity = parseFloat(detail.quantity);
-      const transferRef = `TRASLADO-${id}`;
+      // Procesar cada línea de detalle
+      for (const detail of transfer.details) {
+        const quantity = parseFloat(detail.quantity);
+        const transferRef = `TRASLADO-${id}`;
 
-      // Obtener lotes FIFO del origen
-      const originLots = await db
-        .select()
-        .from(inventoryLots)
-        .where(
-          and(
-            eq(inventoryLots.productId, detail.productId),
-            eq(inventoryLots.warehouseId, transfer.originWarehouseId),
-            eq(inventoryLots.status, "ACTIVE"),
-            gt(inventoryLots.currentQuantity, "0")
+        // Obtener lotes FIFO del origen
+        const originLots = await tx
+          .select()
+          .from(inventoryLots)
+          .where(
+            and(
+              eq(inventoryLots.productId, detail.productId),
+              eq(inventoryLots.warehouseId, transfer.originWarehouseId),
+              eq(inventoryLots.status, "ACTIVE"),
+              gt(inventoryLots.currentQuantity, "0")
+            )
           )
-        )
-        .orderBy(asc(inventoryLots.entryDate), asc(inventoryLots.id));
+          .orderBy(asc(inventoryLots.entryDate), asc(inventoryLots.id));
 
-      let remainingQuantity = quantity;
+        let remainingQuantity = quantity;
 
-      for (const lot of originLots) {
-        if (remainingQuantity <= 0) break;
+        for (const lot of originLots) {
+          if (remainingQuantity <= 0) break;
 
-        const lotQty = parseFloat(lot.currentQuantity);
-        const toTransfer = Math.min(lotQty, remainingQuantity);
-        const isCompleteLot = toTransfer >= lotQty;
+          const lotQty = parseFloat(lot.currentQuantity);
+          const toTransfer = Math.min(lotQty, remainingQuantity);
+          const isCompleteLot = toTransfer >= lotQty;
 
-        if (isCompleteLot) {
-          // Traslado completo: mover el lote íntegro
-          await lotService.moveLotToWarehouse(lot.id, transfer.destinationWarehouseId);
+          if (isCompleteLot) {
+            // Traslado completo: mover el lote íntegro
+            await lotService.moveLotToWarehouse(lot.id, transfer.destinationWarehouseId);
 
-          // Registrar consumo para trazabilidad
-          await db.insert(inventoryMovements).values({
-            type: "TRANSFER_EXIT",
-            status: "APPROVED",
-            warehouseId: transfer.originWarehouseId,
-            productId: detail.productId,
-            quantity: lot.currentQuantity,
-            reference: transferRef,
-            reason: `Traslado completo de lote ${lot.lotCode}`,
-            lotId: lot.id,
-          });
-
-          await db.insert(inventoryMovements).values({
-            type: "TRANSFER_ENTRY",
-            status: "APPROVED",
-            warehouseId: transfer.destinationWarehouseId,
-            productId: detail.productId,
-            quantity: lot.currentQuantity,
-            reference: transferRef,
-            reason: `Recepción de lote completo ${lot.lotCode}`,
-            lotId: lot.id,
-          });
-        } else {
-          // Traslado parcial: consumir del lote origen y crear nuevo lote en destino
-          
-          // Registrar consumo del lote origen
-          const consumeResult = await lotService.consumeLotsFromWarehouse(
-            transfer.originWarehouseId,
-            detail.productId,
-            toTransfer,
-            "TRANSFER",
-            "transfers_detail",
-            detail.id
-          );
-
-          // Crear nuevo lote en destino con el mismo costo del lote consumido
-          // (puede venir de múltiples lotes, así que creamos uno por cada consumo)
-          for (const consumption of consumeResult.consumptions) {
-            // Obtener info completa del lote original
-            const [originalLot] = await db
-              .select()
-              .from(inventoryLots)
-              .where(eq(inventoryLots.id, consumption.lotId));
-
-            // Crear lote en destino
-            const newLotId = await lotService.createLot({
-              productId: detail.productId,
-              warehouseId: transfer.destinationWarehouseId,
-              quantity: consumption.quantity,
-              originalCurrencyId: originalLot.originalCurrencyId,
-              originalUnitCost: parseFloat(originalLot.originalUnitCost),
-              exchangeRate: parseFloat(originalLot.exchangeRate),
-              sourceType: "TRANSFER",
-              sourceId: id,
-              sourceLotId: consumption.lotId,
-              entryDate: getTodayDateString(),
-            });
-
-            await db.insert(inventoryMovements).values({
+            // Registrar consumo para trazabilidad
+            await tx.insert(inventoryMovements).values({
               type: "TRANSFER_EXIT",
               status: "APPROVED",
               warehouseId: transfer.originWarehouseId,
               productId: detail.productId,
-              quantity: consumption.quantity.toString(),
+              quantity: lot.currentQuantity,
               reference: transferRef,
-              reason: `Salida parcial de lote ${consumption.lotCode}`,
-              lotId: consumption.lotId,
+              reason: `Traslado completo de lote ${lot.lotCode}`,
+              lotId: lot.id,
             });
 
-            await db.insert(inventoryMovements).values({
+            await tx.insert(inventoryMovements).values({
               type: "TRANSFER_ENTRY",
               status: "APPROVED",
               warehouseId: transfer.destinationWarehouseId,
               productId: detail.productId,
-              quantity: consumption.quantity.toString(),
+              quantity: lot.currentQuantity,
               reference: transferRef,
-              reason: `Entrada desde lote ${consumption.lotCode} (nuevo lote creado)`,
-              lotId: newLotId,
+              reason: `Recepción de lote completo ${lot.lotCode}`,
+              lotId: lot.id,
             });
+          } else {
+            // Traslado parcial: consumir del lote origen y crear nuevo lote en destino
+            
+            // Registrar consumo del lote origen
+            const consumeResult = await lotService.consumeLotsFromWarehouse(
+              transfer.originWarehouseId,
+              detail.productId,
+              toTransfer,
+              "TRANSFER",
+              "transfers_detail",
+              detail.id
+            );
+
+            // Crear nuevo lote en destino con el mismo costo del lote consumido
+            for (const consumption of consumeResult.consumptions) {
+              // Obtener info completa del lote original
+              const [originalLot] = await tx
+                .select()
+                .from(inventoryLots)
+                .where(eq(inventoryLots.id, consumption.lotId));
+
+              // Crear lote en destino
+              const newLotId = await lotService.createLot({
+                productId: detail.productId,
+                warehouseId: transfer.destinationWarehouseId,
+                quantity: consumption.quantity,
+                originalCurrencyId: originalLot.originalCurrencyId,
+                originalUnitCost: parseFloat(originalLot.originalUnitCost),
+                exchangeRate: parseFloat(originalLot.exchangeRate),
+                sourceType: "TRANSFER",
+                sourceId: id,
+                sourceLotId: consumption.lotId,
+                entryDate: getTodayDateString(),
+              });
+
+              await tx.insert(inventoryMovements).values({
+                type: "TRANSFER_EXIT",
+                status: "APPROVED",
+                warehouseId: transfer.originWarehouseId,
+                productId: detail.productId,
+                quantity: consumption.quantity.toString(),
+                reference: transferRef,
+                reason: `Salida parcial de lote ${consumption.lotCode}`,
+                lotId: consumption.lotId,
+              });
+
+              await tx.insert(inventoryMovements).values({
+                type: "TRANSFER_ENTRY",
+                status: "APPROVED",
+                warehouseId: transfer.destinationWarehouseId,
+                productId: detail.productId,
+                quantity: consumption.quantity.toString(),
+                reference: transferRef,
+                reason: `Entrada desde lote ${consumption.lotCode} (nuevo lote creado)`,
+                lotId: newLotId,
+              });
+            }
           }
+
+          remainingQuantity -= toTransfer;
         }
-
-        remainingQuantity -= toTransfer;
       }
-    }
 
-    return { message: "Traslado aceptado exitosamente. Lotes transferidos." };
+      return { message: "Traslado aceptado exitosamente. Lotes transferidos." };
+    });
   }
 
   // Rechazar traslado

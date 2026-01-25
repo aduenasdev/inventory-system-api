@@ -55,3 +55,20 @@ export const getAllPurchasesSchema = z.object({
     status: z.enum(["PENDING", "APPROVED", "CANCELLED"]).optional(),
   }),
 });
+
+// ========== SCHEMAS PARA ENDPOINTS AUXILIARES ==========
+
+// Schema para obtener productos
+export const getProductsSchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    categoryId: z.string().transform(Number).optional(),
+  }),
+});
+
+// Schema para verificar tasas de cambio
+export const checkExchangeRatesSchema = z.object({
+  query: z.object({
+    currencyId: z.string().transform(Number),
+  }),
+});

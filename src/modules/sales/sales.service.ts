@@ -11,9 +11,11 @@ import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { users } from "../../db/schema/users";
 import { paymentTypes } from "../../db/schema/payment_types";
-import { eq, and, sql, desc, gte, lte, inArray, or, aliasedTable } from "drizzle-orm";
+import { units } from "../../db/schema/units";
+import { categories } from "../../db/schema/categories";
+import { eq, and, sql, desc, gte, lte, inArray, or, aliasedTable, like, gt } from "drizzle-orm";
 import { normalizeBusinessDate, getTodayDateString } from "../../utils/date";
-import { NotFoundError, ValidationError, ConflictError } from "../../utils/errors";
+import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "../../utils/errors";
 import { lotService } from "../inventory/lots.service";
 
 const BASE_CURRENCY_ID = 1;
@@ -25,15 +27,17 @@ const cancelledByUser = aliasedTable(users, "cancelled_by_user");
 const paidByUser = aliasedTable(users, "paid_by_user");
 
 export class SalesService {
-  // Generar número de factura
-  private async generateInvoiceNumber(): Promise<string> {
+  // Generar número de factura con lock para evitar duplicados
+  private async generateInvoiceNumber(tx?: any): Promise<string> {
+    const database = tx || db;
     const year = new Date().getFullYear();
-    const [lastSale] = await db
+    const [lastSale] = await database
       .select()
       .from(sales)
       .where(sql`invoice_number LIKE ${`FV-${year}%`}`)
       .orderBy(desc(sales.id))
-      .limit(1);
+      .limit(1)
+      .for("update");
 
     let nextNumber = 1;
     if (lastSale) {
@@ -42,6 +46,30 @@ export class SalesService {
     }
 
     return `FV-${year}-${nextNumber.toString().padStart(5, "0")}`;
+  }
+
+  // Validar que el almacén existe
+  private async validateWarehouseExists(warehouseId: number): Promise<void> {
+    const [warehouse] = await db
+      .select({ id: warehouses.id })
+      .from(warehouses)
+      .where(eq(warehouses.id, warehouseId));
+    
+    if (!warehouse) {
+      throw new NotFoundError(`Almacén con ID ${warehouseId} no encontrado`);
+    }
+  }
+
+  // Validar que la moneda existe
+  private async validateCurrencyExists(currencyId: number): Promise<void> {
+    const [currency] = await db
+      .select({ id: currencies.id })
+      .from(currencies)
+      .where(eq(currencies.id, currencyId));
+    
+    if (!currency) {
+      throw new NotFoundError(`Moneda con ID ${currencyId} no encontrada`);
+    }
   }
 
   // Obtener tasa de cambio
@@ -109,6 +137,30 @@ export class SalesService {
     );
   }
 
+  // Validar que existe tasa de cambio (sin retornar valor, solo verificar)
+  private async validateExchangeRateExists(fromCurrencyId: number, toCurrencyId: number, date: string, productName?: string) {
+    if (fromCurrencyId === toCurrencyId) {
+      return; // No necesita conversión
+    }
+
+    // Obtener nombres de monedas para mensaje más claro
+    const [fromCurrency] = await db.select({ code: currencies.code }).from(currencies).where(eq(currencies.id, fromCurrencyId));
+    const [toCurrency] = await db.select({ code: currencies.code }).from(currencies).where(eq(currencies.id, toCurrencyId));
+    
+    const fromCode = fromCurrency?.code || `ID:${fromCurrencyId}`;
+    const toCode = toCurrency?.code || `ID:${toCurrencyId}`;
+
+    try {
+      await this.getExchangeRate(fromCurrencyId, toCurrencyId, date);
+    } catch {
+      const productInfo = productName ? ` para el producto "${productName}"` : '';
+      throw new ValidationError(
+        `No existe tasa de cambio de ${fromCode} a ${toCode} para la fecha de hoy (${date})${productInfo}. ` +
+        `Debe crear la tasa de cambio antes de realizar la venta.`
+      );
+    }
+  }
+
   // Verificar stock disponible (desde lotes)
   private async checkStock(warehouseId: number, productId: number, quantity: number) {
     const availableStock = await lotService.getStockFromLots(warehouseId, productId);
@@ -124,12 +176,13 @@ export class SalesService {
     }
   }
 
-  // Crear factura de venta
+  // Crear factura de venta (con transacción para garantizar consistencia)
   async createSale(data: {
     customerName?: string;
     customerPhone?: string;
     warehouseId: number;
     currencyId: number;
+    paymentTypeId?: number;
     notes?: string;
     autoApprove?: boolean;
     details: Array<{
@@ -141,25 +194,54 @@ export class SalesService {
     userId: number;
     userPermissions: string[];
   }) {
+    // Validaciones previas (fuera de transacción para fallar rápido)
+    await this.validateWarehouseExists(data.warehouseId);
+    await this.validateCurrencyExists(data.currencyId);
+
     // Verificar si puede auto-aprobar
     const canAutoApprove = data.autoApprove && data.userPermissions.includes("sales.accept");
+    
+    // Usar fecha actual del servidor
+    const todayDate = getTodayDateString();
+    
+    // Validar paymentTypeId de la factura si se proporciona
+    if (data.paymentTypeId) {
+      const [paymentType] = await db
+        .select()
+        .from(paymentTypes)
+        .where(eq(paymentTypes.id, data.paymentTypeId));
+
+      if (!paymentType) {
+        throw new NotFoundError(`Tipo de pago con ID ${data.paymentTypeId} no encontrado`);
+      }
+    }
 
     // Validar stock para todos los productos
     for (const detail of data.details) {
       await this.checkStock(data.warehouseId, detail.productId, detail.quantity);
     }
 
-    // Generar número de factura
-    const invoiceNumber = await this.generateInvoiceNumber();
-    
-    // Usar fecha actual del servidor (zona horaria local)
-    const normalizedDate = getTodayDateString();
+    // Validar tasas de cambio ANTES de procesar (si hay productos en moneda diferente)
+    for (const detail of data.details) {
+      const [product] = await db
+        .select({ currencyId: products.currencyId, name: products.name })
+        .from(products)
+        .where(eq(products.id, detail.productId));
 
-    // Procesar conversión de monedas
+      if (product && product.currencyId !== data.currencyId) {
+        // Verificar que existe tasa de cambio para hoy
+        await this.validateExchangeRateExists(product.currencyId, data.currencyId, todayDate, product.name);
+      }
+    }
+
+    // Usar fecha actual del servidor (zona horaria local)
+    const normalizedDate = todayDate;
+
+    // Procesar conversión de monedas (fuera de transacción)
     let subtotal = 0;
 
     const detailsWithConversion = await Promise.all(
-      data.details.map(async (detail) => {
+      data.details.map(async (detail, index) => {
         const [product] = await db
           .select()
           .from(products)
@@ -196,6 +278,7 @@ export class SalesService {
         subtotal += lineSubtotal;
 
         return {
+          lineIndex: index, // Para identificar cada línea únicamente
           productId: detail.productId,
           quantity: detail.quantity.toString(),
           unitPrice: detail.unitPrice.toString(),
@@ -208,50 +291,100 @@ export class SalesService {
       })
     );
 
-    // Crear factura (PENDING o APPROVED según autoApprove)
-    const [sale] = (await db.insert(sales).values({
-      invoiceNumber,
-      customerName: data.customerName || null,
-      customerPhone: data.customerPhone || null,
-      date: sql`${normalizedDate}`,
-      warehouseId: data.warehouseId,
-      currencyId: data.currencyId,
-      status: canAutoApprove ? "APPROVED" : "PENDING",
-      subtotal: subtotal.toString(),
-      total: subtotal.toString(),
-      notes: data.notes || null,
-      createdBy: data.userId,
-      acceptedBy: canAutoApprove ? data.userId : null,
-      acceptedAt: canAutoApprove ? new Date() : null,
-    })) as any;
+    // Ejecutar todo en transacción
+    return await db.transaction(async (tx) => {
+      // Generar número de factura dentro de transacción (con lock)
+      const invoiceNumber = await this.generateInvoiceNumber(tx);
 
-    const saleId = sale.insertId;
+      // Crear factura (PENDING o APPROVED según autoApprove)
+      const [sale] = (await tx.insert(sales).values({
+        invoiceNumber,
+        customerName: data.customerName || null,
+        customerPhone: data.customerPhone || null,
+        date: sql`${normalizedDate}`,
+        warehouseId: data.warehouseId,
+        currencyId: data.currencyId,
+        paymentTypeId: data.paymentTypeId || null,
+        status: canAutoApprove ? "APPROVED" : "PENDING",
+        subtotal: subtotal.toString(),
+        total: subtotal.toString(),
+        notes: data.notes || null,
+        createdBy: data.userId,
+        acceptedBy: canAutoApprove ? data.userId : null,
+        acceptedAt: canAutoApprove ? new Date() : null,
+      })) as any;
 
-    // Insertar detalles
-    await db.insert(salesDetail).values(
-      detailsWithConversion.map((detail) => ({
-        saleId,
-        ...detail,
-      }))
-    );
+      const saleId = sale.insertId;
 
-    // Si es auto-aprobada, consumir lotes inmediatamente
-    if (canAutoApprove) {
-      const saleData = await this.getSaleByIdInternal(saleId);
-      await this.processApprovedSale(saleData);
-    }
+      // Insertar detalles y obtener sus IDs
+      const insertedDetailIds: number[] = [];
+      for (const detail of detailsWithConversion) {
+        const { lineIndex, ...detailData } = detail;
+        const [insertResult] = (await tx.insert(salesDetail).values({
+          saleId,
+          ...detailData,
+        })) as any;
+        insertedDetailIds.push(insertResult.insertId);
+      }
 
-    return { 
-      id: saleId, 
-      invoiceNumber, 
-      subtotal, 
-      total: subtotal,
-      status: canAutoApprove ? "APPROVED" : "PENDING"
-    };
+      // Si es auto-aprobada, consumir lotes inmediatamente
+      if (canAutoApprove) {
+        for (let i = 0; i < detailsWithConversion.length; i++) {
+          const detail = detailsWithConversion[i];
+          const detailId = insertedDetailIds[i];
+          
+          const quantity = parseFloat(detail.quantity);
+          const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
+          const revenue = unitPrice * quantity;
+
+          // Consumir lotes FIFO
+          const consumeResult = await lotService.consumeLotsFromWarehouse(
+            data.warehouseId,
+            detail.productId,
+            quantity,
+            "SALE",
+            "sales_detail",
+            detailId
+          );
+
+          const realCost = consumeResult.totalCost;
+          const margin = revenue - realCost;
+
+          // Actualizar detalle con costo real y margen (usando ID directo)
+          await tx
+            .update(salesDetail)
+            .set({
+              realCost: realCost.toString(),
+              margin: margin.toString(),
+            })
+            .where(eq(salesDetail.id, detailId));
+
+          // Crear movimiento de inventario
+          await tx.insert(inventoryMovements).values({
+            type: "SALE_EXIT",
+            status: "APPROVED",
+            warehouseId: data.warehouseId,
+            productId: detail.productId,
+            quantity: detail.quantity,
+            reference: invoiceNumber,
+            reason: `Salida por venta ${invoiceNumber}. Costo real: ${realCost.toFixed(4)}, Margen: ${margin.toFixed(4)}`,
+          });
+        }
+      }
+
+      return { 
+        id: saleId, 
+        invoiceNumber, 
+        subtotal, 
+        total: subtotal,
+        status: canAutoApprove ? "APPROVED" : "PENDING"
+      };
+    });
   }
 
-  // Procesar venta aprobada (consumir lotes y calcular costos)
-  private async processApprovedSale(sale: any) {
+  // Procesar venta aprobada (consumir lotes y calcular costos) - usado por acceptSale
+  private async processApprovedSale(sale: any, tx?: any) {
+    const database = tx || db;
     for (const detail of sale.details) {
       const quantity = parseFloat(detail.quantity);
       const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
@@ -271,7 +404,7 @@ export class SalesService {
       const margin = revenue - realCost;
 
       // Actualizar detalle con costo real y margen
-      await db
+      await database
         .update(salesDetail)
         .set({
           realCost: realCost.toString(),
@@ -280,7 +413,7 @@ export class SalesService {
         .where(eq(salesDetail.id, detail.id));
 
       // Crear movimiento de inventario (para auditoría general)
-      await db.insert(inventoryMovements).values({
+      await database.insert(inventoryMovements).values({
         type: "SALE_EXIT",
         status: "APPROVED",
         warehouseId: sale.warehouseId,
@@ -306,6 +439,8 @@ export class SalesService {
         currencyId: sales.currencyId,
         currencyCode: currencies.code,
         currencySymbol: currencies.symbol,
+        paymentTypeId: sales.paymentTypeId,
+        paymentTypeName: paymentTypes.type,
         status: sales.status,
         cancellationReason: sales.cancellationReason,
         subtotal: sales.subtotal,
@@ -333,6 +468,7 @@ export class SalesService {
       .leftJoin(acceptedByUser, eq(sales.acceptedBy, acceptedByUser.id))
       .leftJoin(cancelledByUser, eq(sales.cancelledBy, cancelledByUser.id))
       .leftJoin(paidByUser, eq(sales.paidBy, paidByUser.id))
+      .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
       .where(whereCondition)
       .orderBy(desc(sales.createdAt));
   }
@@ -500,7 +636,7 @@ export class SalesService {
     return Object.assign({}, sale, { details });
   }
 
-  // Aceptar factura de venta (consume lotes FIFO y calcula costo real)
+  // Aceptar factura de venta (consume lotes FIFO y calcula costo real) - con transacción
   async acceptSale(id: number, userId: number) {
     const sale = await this.getSaleByIdInternal(id);
 
@@ -508,25 +644,27 @@ export class SalesService {
       throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
     }
 
-    // Revalidar stock al momento de aceptar
+    // Revalidar stock al momento de aceptar (fuera de transacción para fallar rápido)
     for (const detail of sale.details) {
       await this.checkStock(sale.warehouseId, detail.productId, parseFloat(detail.quantity));
     }
 
-    // Actualizar estado de factura
-    await db
-      .update(sales)
-      .set({
-        status: "APPROVED",
-        acceptedBy: userId,
-        acceptedAt: new Date(),
-      })
-      .where(eq(sales.id, id));
+    return await db.transaction(async (tx) => {
+      // Actualizar estado de factura
+      await tx
+        .update(sales)
+        .set({
+          status: "APPROVED",
+          acceptedBy: userId,
+          acceptedAt: new Date(),
+        })
+        .where(eq(sales.id, id));
 
-    // Procesar la venta (consumir lotes y calcular costos)
-    await this.processApprovedSale(sale);
+      // Procesar la venta (consumir lotes y calcular costos)
+      await this.processApprovedSale(sale, tx);
 
-    return { message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO." };
+      return { message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO." };
+    });
   }
 
   // Cancelar factura de venta
@@ -539,21 +677,38 @@ export class SalesService {
 
     const wasApproved = sale.status === "APPROVED";
 
-    await db
-      .update(sales)
-      .set({
-        status: "CANCELLED",
-        cancellationReason,
-        cancelledBy: userId,
-        cancelledAt: new Date(),
-      })
-      .where(eq(sales.id, id));
+    // Si estaba en PENDING, solo actualizar estado (sin transacción necesaria)
+    if (!wasApproved) {
+      await db
+        .update(sales)
+        .set({
+          status: "CANCELLED",
+          cancellationReason,
+          cancelledBy: userId,
+          cancelledAt: new Date(),
+        })
+        .where(eq(sales.id, id));
 
-    // Si estaba aprobada, recrear lotes con el mismo costo
-    if (wasApproved) {
+      return { message: "Factura cancelada exitosamente" };
+    }
+
+    // Si estaba aprobada, ejecutar en transacción
+    return await db.transaction(async (tx) => {
+      // Actualizar estado
+      await tx
+        .update(sales)
+        .set({
+          status: "CANCELLED",
+          cancellationReason,
+          cancelledBy: userId,
+          cancelledAt: new Date(),
+        })
+        .where(eq(sales.id, id));
+
+      // Recrear lotes con el mismo costo
       for (const detail of sale.details) {
         // Obtener los consumos originales de esta línea
-        const consumptions = await db
+        const consumptions = await tx
           .select({
             lotId: lotConsumptions.lotId,
             quantity: lotConsumptions.quantity,
@@ -591,7 +746,7 @@ export class SalesService {
           });
 
           // Crear movimiento de reversión
-          await db.insert(inventoryMovements).values({
+          await tx.insert(inventoryMovements).values({
             type: "ADJUSTMENT_ENTRY",
             status: "APPROVED",
             warehouseId: sale.warehouseId,
@@ -602,9 +757,9 @@ export class SalesService {
           });
         }
       }
-    }
 
-    return { message: "Factura cancelada exitosamente" };
+      return { message: "Factura cancelada exitosamente" };
+    });
   }
 
   // Marcar venta como pagada/cobrada (no afecta inventario)
@@ -907,6 +1062,197 @@ export class SalesService {
         paidSales,
         unpaidSales,
       },
+    };
+  }
+
+  // Obtener productos disponibles para vender en un almacén
+  // Solo muestra productos con stock > 0 en el almacén
+  // Verifica que el usuario tenga acceso al almacén
+  async getAvailableProducts(
+    userId: number,
+    warehouseId: number,
+    search?: string,
+    categoryId?: number
+  ) {
+    // Verificar que el usuario tenga acceso al almacén
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
+
+    if (!allowedWarehouseIds.includes(warehouseId)) {
+      throw new ForbiddenError("No tienes acceso a este almacén");
+    }
+
+    // Obtener información del almacén
+    const [warehouse] = await db
+      .select()
+      .from(warehouses)
+      .where(eq(warehouses.id, warehouseId));
+
+    if (!warehouse) {
+      throw new NotFoundError("Almacén no encontrado");
+    }
+
+    // Obtener lotes activos (con stock > 0) del almacén
+    // Agrupados por producto
+    const lotsWithStock = await db
+      .select({
+        productId: inventoryLots.productId,
+        totalStock: sql<string>`SUM(${inventoryLots.currentQuantity})`.as('total_stock'),
+      })
+      .from(inventoryLots)
+      .where(
+        and(
+          eq(inventoryLots.warehouseId, warehouseId),
+          eq(inventoryLots.status, "ACTIVE"),
+          gt(inventoryLots.currentQuantity, "0")
+        )
+      )
+      .groupBy(inventoryLots.productId);
+
+    if (lotsWithStock.length === 0) {
+      return {
+        warehouse: { id: warehouse.id, name: warehouse.name },
+        products: [],
+      };
+    }
+
+    // Obtener IDs de productos con stock
+    const productIdsWithStock = lotsWithStock.map(l => l.productId);
+
+    // Construir condiciones de búsqueda
+    const conditions: any[] = [inArray(products.id, productIdsWithStock)];
+
+    // Filtro de búsqueda por nombre o código
+    if (search) {
+      conditions.push(
+        or(
+          like(products.name, `%${search}%`),
+          like(products.code, `%${search}%`)
+        )
+      );
+    }
+
+    // Filtro por categoría
+    if (categoryId) {
+      conditions.push(eq(products.categoryId, categoryId));
+    }
+
+    // Obtener productos con sus detalles
+    const productsData = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        code: products.code,
+        description: products.description,
+        salePrice: products.salePrice,
+        costPrice: products.costPrice,
+        currencyId: products.currencyId,
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+        unitId: products.unitId,
+        unitName: units.name,
+        unitShortName: units.shortName,
+        categoryId: products.categoryId,
+        categoryName: categories.name,
+      })
+      .from(products)
+      .innerJoin(currencies, eq(products.currencyId, currencies.id))
+      .innerJoin(units, eq(products.unitId, units.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(...conditions))
+      .orderBy(products.name);
+
+    // Combinar productos con su stock disponible
+    const productsWithStock = productsData.map(product => {
+      const stockInfo = lotsWithStock.find(l => l.productId === product.id);
+      return {
+        ...product,
+        availableStock: stockInfo ? parseFloat(stockInfo.totalStock).toFixed(4) : "0.0000",
+      };
+    });
+
+    return {
+      warehouse: { id: warehouse.id, name: warehouse.name },
+      products: productsWithStock,
+    };
+  }
+
+  // Obtener almacenes disponibles para el usuario (para selector de venta)
+  async getUserWarehouses(userId: number) {
+    const userWarehousesData = await db
+      .select({
+        warehouseId: userWarehouses.warehouseId,
+        warehouseName: warehouses.name,
+        warehouseDireccion: warehouses.direccion,
+      })
+      .from(userWarehouses)
+      .innerJoin(warehouses, eq(userWarehouses.warehouseId, warehouses.id))
+      .where(eq(userWarehouses.userId, userId));
+
+    return userWarehousesData;
+  }
+
+  // Verificar tasas de cambio disponibles para el día actual
+  async checkExchangeRates(invoiceCurrencyId: number) {
+    const today = getTodayDateString();
+    
+    // Obtener todas las monedas activas (excepto CUP que no necesita tasa)
+    const allCurrencies = await db
+      .select({
+        id: currencies.id,
+        symbol: currencies.symbol,
+        name: currencies.name,
+      })
+      .from(currencies);
+
+    // Obtener las tasas de cambio del día
+    const todayRates = await db
+      .select({
+        toCurrencyId: exchangeRates.toCurrencyId,
+        rate: exchangeRates.rate,
+      })
+      .from(exchangeRates)
+      .where(
+        and(
+          eq(exchangeRates.fromCurrencyId, BASE_CURRENCY_ID),
+          sql`DATE(${exchangeRates.date}) = ${today}`
+        )
+      );
+
+    const ratesMap = new Map(todayRates.map((r) => [r.toCurrencyId, r.rate]));
+
+    // Para cada moneda, verificar si tiene tasa de cambio
+    const currencyStatus = allCurrencies.map((currency) => {
+      const hasRate = currency.id === BASE_CURRENCY_ID || ratesMap.has(currency.id);
+      return {
+        id: currency.id,
+        symbol: currency.symbol,
+        name: currency.name,
+        hasExchangeRate: hasRate,
+        rate: currency.id === BASE_CURRENCY_ID ? "1" : ratesMap.get(currency.id) || null,
+      };
+    });
+
+    // Verificar si la moneda seleccionada para la factura tiene tasa
+    const selectedCurrency = currencyStatus.find((c) => c.id === invoiceCurrencyId);
+    const canCreateSale = selectedCurrency?.hasExchangeRate ?? false;
+
+    // Verificar qué monedas de productos podrían causar problemas
+    const missingRates = currencyStatus.filter((c) => !c.hasExchangeRate);
+
+    return {
+      date: today,
+      invoiceCurrency: selectedCurrency,
+      canCreateSale,
+      allCurrencies: currencyStatus,
+      missingRates,
+      message: canCreateSale
+        ? "Puede crear ventas con esta moneda"
+        : `No hay tasa de cambio para ${selectedCurrency?.symbol || "la moneda seleccionada"} el día ${today}`,
     };
   }
 }

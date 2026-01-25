@@ -9,6 +9,11 @@ import {
   acceptPurchase,
   cancelPurchase,
   getCancelledPurchasesReport,
+  getUserWarehouses,
+  getProducts,
+  getCurrencies,
+  checkExchangeRates,
+  getCategories,
 } from "./purchases.controller";
 import {
   createPurchaseSchema,
@@ -17,9 +22,57 @@ import {
   cancelPurchaseSchema,
   getCancelledPurchasesReportSchema,
   getAllPurchasesSchema,
+  getProductsSchema,
+  checkExchangeRatesSchema,
 } from "./purchases.schemas";
 
 const router = Router();
+
+// ========== ENDPOINTS AUXILIARES PARA FRONTEND (deben ir antes de rutas con :id) ==========
+
+// GET /purchases/warehouses - Obtener almacenes disponibles del usuario
+router.get(
+  "/warehouses",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  getUserWarehouses
+);
+
+// GET /purchases/products - Obtener productos disponibles para comprar
+router.get(
+  "/products",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  validate(getProductsSchema),
+  getProducts
+);
+
+// GET /purchases/currencies - Obtener monedas disponibles
+router.get(
+  "/currencies",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  getCurrencies
+);
+
+// GET /purchases/exchange-rates - Verificar tasas de cambio disponibles
+router.get(
+  "/exchange-rates",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  validate(checkExchangeRatesSchema),
+  checkExchangeRates
+);
+
+// GET /purchases/categories - Obtener categorías para filtrar productos
+router.get(
+  "/categories",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  getCategories
+);
+
+// ========== RUTAS PRINCIPALES ==========
 
 // GET /purchases - Listar compras según permisos del usuario
 // Requiere rango de fechas: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD

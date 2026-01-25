@@ -14,6 +14,9 @@ import {
   getSalesTotalsReport,
   getSaleLotConsumptions,
   getSalesMarginReport,
+  getAvailableProducts,
+  getUserWarehouses,
+  checkExchangeRates,
 } from "./sales.controller";
 import {
   createSaleSchema,
@@ -26,9 +29,44 @@ import {
   getSalesTotalsReportSchema,
   getAllSalesSchema,
   getSalesMarginReportSchema,
+  getAvailableProductsSchema,
+  checkExchangeRatesSchema,
 } from "./sales.schemas";
 
 const router = Router();
+
+// ========== ENDPOINTS PARA CREAR VENTAS ==========
+
+// GET /sales/warehouses - Obtener almacenes disponibles del usuario
+// Usar este endpoint primero para mostrar selector de almacén
+router.get(
+  "/warehouses",
+  authMiddleware,
+  hasPermission("sales.create"),
+  getUserWarehouses
+);
+
+// GET /sales/exchange-rates - Verificar tasas de cambio disponibles
+// Usar este endpoint para verificar si se puede crear una venta con una moneda específica
+router.get(
+  "/exchange-rates",
+  authMiddleware,
+  hasPermission("sales.create"),
+  validate(checkExchangeRatesSchema),
+  checkExchangeRates
+);
+
+// GET /sales/products/:warehouseId - Obtener productos disponibles en un almacén
+// Solo muestra productos con stock > 0 en almacenes del usuario
+router.get(
+  "/products/:warehouseId",
+  authMiddleware,
+  hasPermission("sales.create"),
+  validate(getAvailableProductsSchema),
+  getAvailableProducts
+);
+
+// ========== LISTADOS Y REPORTES ==========
 
 // GET /sales - Listar ventas según permisos del usuario
 // Requiere rango de fechas: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD

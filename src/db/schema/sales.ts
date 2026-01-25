@@ -2,6 +2,7 @@ import { mysqlTable, serial, int, varchar, date, decimal, text, timestamp, mysql
 import { warehouses } from "./warehouses";
 import { currencies } from "./currencies";
 import { users } from "./users";
+import { paymentTypes } from "./payment_types";
 
 export const sales = mysqlTable("sales", {
   id: serial("id").primaryKey(),
@@ -11,6 +12,7 @@ export const sales = mysqlTable("sales", {
   date: date("date").notNull(),
   warehouseId: int("warehouse_id").notNull().references(() => warehouses.id),
   currencyId: int("currency_id").notNull().references(() => currencies.id),
+  paymentTypeId: int("payment_type_id").references(() => paymentTypes.id),
   status: mysqlEnum("status", ["PENDING", "APPROVED", "CANCELLED"]).notNull().default("PENDING"),
   cancellationReason: text("cancellation_reason"),
   subtotal: decimal("subtotal", { precision: 18, scale: 2 }).notNull().default("0"),

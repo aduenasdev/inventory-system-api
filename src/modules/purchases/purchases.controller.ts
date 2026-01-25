@@ -101,3 +101,61 @@ export const getCancelledPurchasesReport = async (
     res.status(500).json({ error: error.message });
   }
 };
+
+// ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
+
+// Obtener almacenes disponibles del usuario
+export const getUserWarehouses = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const warehouses = await purchasesService.getUserWarehouses(userId);
+    res.json(warehouses);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener productos disponibles para comprar
+export const getProducts = async (req: Request, res: Response) => {
+  try {
+    const { search, categoryId } = req.query as { search?: string; categoryId?: string };
+    const products = await purchasesService.getProducts(
+      search,
+      categoryId ? Number(categoryId) : undefined
+    );
+    res.json(products);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener monedas disponibles
+export const getCurrencies = async (req: Request, res: Response) => {
+  try {
+    const currencies = await purchasesService.getCurrencies();
+    res.json(currencies);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Verificar tasas de cambio disponibles
+export const checkExchangeRates = async (req: Request, res: Response) => {
+  try {
+    const { currencyId } = req.query as { currencyId: string };
+    const result = await purchasesService.checkExchangeRates(Number(currencyId));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener categorías
+export const getCategories = async (req: Request, res: Response) => {
+  try {
+    const categories = await purchasesService.getCategories();
+    res.json(categories);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};

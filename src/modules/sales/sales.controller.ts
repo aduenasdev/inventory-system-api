@@ -163,3 +163,47 @@ export const getSalesMarginReport = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// ========== ENDPOINTS PARA CREAR VENTAS ==========
+
+// Obtener productos disponibles para vender en un almacén
+export const getAvailableProducts = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const warehouseId = parseInt(req.params.warehouseId);
+    const { search, categoryId } = req.query as { search?: string; categoryId?: string };
+    
+    const result = await salesService.getAvailableProducts(
+      userId,
+      warehouseId,
+      search,
+      categoryId ? Number(categoryId) : undefined
+    );
+    res.json(result);
+  } catch (error: any) {
+    const status = error.name === 'ForbiddenError' ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+};
+
+// Obtener almacenes disponibles del usuario
+export const getUserWarehouses = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const warehouses = await salesService.getUserWarehouses(userId);
+    res.json(warehouses);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Verificar tasas de cambio disponibles
+export const checkExchangeRates = async (req: Request, res: Response) => {
+  try {
+    const { currencyId } = req.query as { currencyId: string };
+    const result = await salesService.checkExchangeRates(Number(currencyId));
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};

@@ -6,6 +6,7 @@ export const createSaleSchema = z.object({
     customerPhone: z.string().optional(),
     warehouseId: z.number().int().positive(),
     currencyId: z.number().int().positive(),
+    paymentTypeId: z.number().int().positive().optional(),
     notes: z.string().optional(),
     autoApprove: z.boolean().optional().default(false), // Si true y tiene permiso, crea directo en APPROVED
     details: z.array(
@@ -83,5 +84,23 @@ export const getSalesMarginReportSchema = z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
     warehouseId: z.string().transform(Number).optional(),
+  }),
+});
+
+// Schema para obtener productos disponibles para vender en un almacén
+export const getAvailableProductsSchema = z.object({
+  params: z.object({
+    warehouseId: z.string().transform(Number),
+  }),
+  query: z.object({
+    search: z.string().optional(), // Buscar por nombre o código
+    categoryId: z.string().transform(Number).optional(),
+  }),
+});
+
+// Schema para verificar tasas de cambio
+export const checkExchangeRatesSchema = z.object({
+  query: z.object({
+    currencyId: z.string().transform(Number), // Moneda de la factura
   }),
 });
