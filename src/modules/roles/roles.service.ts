@@ -95,3 +95,67 @@ export async function deleteRole(roleId: number) {
 
   return { message: "Rol eliminado exitosamente" };
 }
+
+export async function removePermissionFromRole(roleId: number, permissionId: number) {
+  // Verificar que el rol existe
+  const role = await getRoleById(roleId);
+  if (!role) {
+    throw new ValidationError("Rol no encontrado");
+  }
+
+  // Verificar que el permiso está asignado al rol
+  const existing = await db
+    .select()
+    .from(rolePermissions)
+    .where(sql`${rolePermissions.roleId} = ${roleId} AND ${rolePermissions.permissionId} = ${permissionId}`);
+
+  if (existing.length === 0) {
+    throw new ValidationError("El rol no tiene ese permiso asignado");
+  }
+
+  await db
+    .delete(rolePermissions)
+    .where(sql`${rolePermissions.roleId} = ${roleId} AND ${rolePermissions.permissionId} = ${permissionId}`);
+
+  return { message: "Permiso removido del rol" };
+}
+
+export async function replaceRolePermissions(roleId: number, permissionIds: number[]) {
+  // Verificar que el rol existe
+  const role = await getRoleById(roleId);
+  if (!role) {
+    throw new ValidationError("Rol no encontrado");
+  }
+
+  // Verificar que todos los permisos existen
+  if (permissionIds.length > 0) {
+    const existingPermissions = await db
+      .select({ id: permissions.id })
+      .from(permissions)
+      .where(sql`${permissions.id} IN (${sql.join(permissionIds.map(id => sql`${id}`), sql`, `)})`);
+
+    if (existingPermissions.length !== permissionIds.length) {
+      const foundIds = existingPermissions.map(p => p.id);
+      const notFound = permissionIds.filter(id => !foundIds.includes(id));
+      throw new ValidationError(`Permisos no encontrados: ${notFound.join(", ")}`);
+    }
+  }
+
+  // Eliminar todos los permisos actuales del rol
+  await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
+
+  // Insertar los nuevos permisos
+  if (permissionIds.length > 0) {
+    await db.insert(rolePermissions).values(
+      permissionIds.map(permissionId => ({ roleId, permissionId }))
+    );
+  }
+
+  // Retornar los permisos actualizados
+  const updatedPermissions = await getPermissionsForRole(roleId);
+  return {
+    message: "Permisos actualizados exitosamente",
+    permissions: updatedPermissions,
+    count: updatedPermissions.length
+  };
+}

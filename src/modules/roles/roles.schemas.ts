@@ -25,3 +25,19 @@ export const updateRoleSchema = z.object({
     roleId: z.string(),
   }),
 });
+
+export const replaceRolePermissionsSchema = z.object({
+  body: z.object({
+    permissionIds: z.array(z.number({ message: "Cada ID de permiso debe ser un número" })),
+  }),
+  params: z.object({
+    roleId: z.string(),
+  }),
+});
+
+export const removePermissionFromRoleSchema = z.object({
+  params: z.object({
+    roleId: z.string(),
+    permissionId: z.string(),
+  }),
+});

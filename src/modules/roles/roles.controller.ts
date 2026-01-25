@@ -7,6 +7,8 @@ import {
   addPermissionToRole,
   getPermissionsForRole,
   deleteRole,
+  removePermissionFromRole,
+  replaceRolePermissions,
 } from "./roles.service";
 
 export async function createRoleHandler(req: Request, res: Response) {
@@ -73,6 +75,27 @@ export async function deleteRoleHandler(req: Request, res: Response) {
   try {
     const { roleId } = req.params;
     const result = await deleteRole(Number(roleId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function removePermissionFromRoleHandler(req: Request, res: Response) {
+  try {
+    const { roleId, permissionId } = req.params;
+    const result = await removePermissionFromRole(Number(roleId), Number(permissionId));
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+export async function replaceRolePermissionsHandler(req: Request, res: Response) {
+  try {
+    const { roleId } = req.params;
+    const { permissionIds } = req.body;
+    const result = await replaceRolePermissions(Number(roleId), permissionIds);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

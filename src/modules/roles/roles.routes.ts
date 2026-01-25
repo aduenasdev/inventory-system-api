@@ -7,11 +7,19 @@ import {
   addPermissionToRoleHandler,
   getPermissionsForRoleHandler,
   deleteRoleHandler,
+  removePermissionFromRoleHandler,
+  replaceRolePermissionsHandler,
 } from "./roles.controller";
 import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
 import { validate } from "../../middlewares/validate";
-import { createRoleSchema, addPermissionToRoleSchema, updateRoleSchema } from "./roles.schemas";
+import { 
+  createRoleSchema, 
+  addPermissionToRoleSchema, 
+  updateRoleSchema,
+  replaceRolePermissionsSchema,
+  removePermissionFromRoleSchema,
+} from "./roles.schemas";
 
 const router = Router();
 
@@ -49,6 +57,24 @@ router.post(
   hasPermission("roles.update"),
   validate(addPermissionToRoleSchema),
   addPermissionToRoleHandler
+);
+
+// PUT /roles/:roleId/permissions - Reemplazar TODOS los permisos de un rol
+router.put(
+  "/:roleId/permissions",
+  authMiddleware,
+  hasPermission("roles.update"),
+  validate(replaceRolePermissionsSchema),
+  replaceRolePermissionsHandler
+);
+
+// DELETE /roles/:roleId/permissions/:permissionId - Remover UN permiso de un rol
+router.delete(
+  "/:roleId/permissions/:permissionId",
+  authMiddleware,
+  hasPermission("roles.update"),
+  validate(removePermissionFromRoleSchema),
+  removePermissionFromRoleHandler
 );
 
 export default router;
