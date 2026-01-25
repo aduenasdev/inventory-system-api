@@ -200,8 +200,13 @@ export const getUserWarehouses = async (req: Request, res: Response) => {
 // Verificar tasas de cambio disponibles
 export const checkExchangeRates = async (req: Request, res: Response) => {
   try {
-    const { currencyId } = req.query as { currencyId: string };
-    const result = await salesService.checkExchangeRates(Number(currencyId));
+    const { currencyId, date } = req.query as { currencyId: string; date?: string };
+    const userPermissions: string[] = (res.locals.user as any).permissions || [];
+    const result = await salesService.checkExchangeRates(
+      Number(currencyId),
+      date,
+      userPermissions
+    );
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

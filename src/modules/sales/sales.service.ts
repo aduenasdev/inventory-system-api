@@ -1290,9 +1290,34 @@ export class SalesService {
     return userWarehousesData;
   }
 
-  // Verificar tasas de cambio disponibles para el día actual
-  async checkExchangeRates(invoiceCurrencyId: number) {
+  // Verificar tasas de cambio disponibles para una fecha específica
+  // Si se pasa date, requiere permiso sales.backdate
+  async checkExchangeRates(
+    invoiceCurrencyId: number,
+    date?: string,
+    userPermissions: string[] = []
+  ) {
     const today = getTodayDateString();
+    let targetDate = today;
+
+    // Si se pasa una fecha específica, validar permisos
+    if (date) {
+      // Validar que no sea fecha futura
+      if (date > today) {
+        throw new Error("No se puede consultar tasas de cambio para fechas futuras");
+      }
+
+      // Si es una fecha diferente a hoy, requiere permiso
+      if (date !== today) {
+        if (!userPermissions.includes("sales.backdate")) {
+          throw new Error(
+            "No tienes permiso para consultar tasas de cambio de fechas anteriores. " +
+            "Requiere permiso: sales.backdate"
+          );
+        }
+        targetDate = date;
+      }
+    }
     
     // Obtener todas las monedas activas (excepto CUP que no necesita tasa)
     const allCurrencies = await db
@@ -1300,11 +1325,12 @@ export class SalesService {
         id: currencies.id,
         symbol: currencies.symbol,
         name: currencies.name,
+        code: currencies.code,
       })
       .from(currencies);
 
-    // Obtener las tasas de cambio del día
-    const todayRates = await db
+    // Obtener las tasas de cambio del día objetivo
+    const dateRates = await db
       .select({
         toCurrencyId: exchangeRates.toCurrencyId,
         rate: exchangeRates.rate,
@@ -1313,17 +1339,18 @@ export class SalesService {
       .where(
         and(
           eq(exchangeRates.fromCurrencyId, BASE_CURRENCY_ID),
-          sql`DATE(${exchangeRates.date}) = ${today}`
+          sql`DATE(${exchangeRates.date}) = ${targetDate}`
         )
       );
 
-    const ratesMap = new Map(todayRates.map((r) => [r.toCurrencyId, r.rate]));
+    const ratesMap = new Map(dateRates.map((r) => [r.toCurrencyId, r.rate]));
 
     // Para cada moneda, verificar si tiene tasa de cambio
     const currencyStatus = allCurrencies.map((currency) => {
       const hasRate = currency.id === BASE_CURRENCY_ID || ratesMap.has(currency.id);
       return {
         id: currency.id,
+        code: currency.code,
         symbol: currency.symbol,
         name: currency.name,
         hasExchangeRate: hasRate,
@@ -1338,15 +1365,20 @@ export class SalesService {
     // Verificar qué monedas de productos podrían causar problemas
     const missingRates = currencyStatus.filter((c) => !c.hasExchangeRate);
 
+    const isBackdate = targetDate !== today;
+
     return {
-      date: today,
+      date: targetDate,
+      isBackdate,
       invoiceCurrency: selectedCurrency,
       canCreateSale,
       allCurrencies: currencyStatus,
       missingRates,
       message: canCreateSale
-        ? "Puede crear ventas con esta moneda"
-        : `No hay tasa de cambio para ${selectedCurrency?.symbol || "la moneda seleccionada"} el día ${today}`,
+        ? isBackdate
+          ? `Puede crear ventas retroactivas con esta moneda para el ${targetDate}`
+          : "Puede crear ventas con esta moneda"
+        : `No hay tasa de cambio para ${selectedCurrency?.symbol || "la moneda seleccionada"} el día ${targetDate}`,
     };
   }
 
