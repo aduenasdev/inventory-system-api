@@ -53,14 +53,16 @@ export class LotService {
 
   /**
    * Crea un nuevo lote de inventario
+   * @param tx - Transacción opcional para garantizar atomicidad
    */
-  async createLot(data: CreateLotData, lineNumber?: number): Promise<number> {
+  async createLot(data: CreateLotData, lineNumber?: number, tx?: any): Promise<number> {
+    const database = tx || db;
     const lotCode = await this.generateLotCode(data.sourceType, data.sourceId, lineNumber);
     
     // Calcular costo en moneda base (CUP)
     const unitCostBase = data.originalUnitCost * data.exchangeRate;
 
-    const [result] = (await db.insert(inventoryLots).values({
+    const [result] = (await database.insert(inventoryLots).values({
       lotCode,
       productId: data.productId,
       warehouseId: data.warehouseId,
@@ -77,8 +79,8 @@ export class LotService {
       status: "ACTIVE",
     })) as any;
 
-    // Actualizar caché de inventario
-    await this.updateInventoryCache(data.warehouseId, data.productId, data.quantity);
+    // Actualizar caché de inventario (en la misma transacción si existe)
+    await this.updateInventoryCache(data.warehouseId, data.productId, data.quantity, database);
 
     return result.insertId;
   }
@@ -86,6 +88,7 @@ export class LotService {
   /**
    * Consume cantidad de lotes usando FIFO estricto
    * Retorna el detalle de consumo por lote y el costo total real
+   * @param tx - Transacción opcional para garantizar atomicidad
    */
   async consumeLotsFromWarehouse(
     warehouseId: number,
@@ -93,10 +96,13 @@ export class LotService {
     quantity: number,
     consumptionType: "SALE" | "TRANSFER" | "ADJUSTMENT" | "CANCELLATION",
     referenceType: string,
-    referenceId: number | null
+    referenceId: number | null,
+    tx?: any
   ): Promise<ConsumeLotResult> {
-    // Obtener lotes disponibles en orden FIFO
-    const availableLots = await db
+    const database = tx || db;
+    
+    // Obtener lotes disponibles en orden FIFO (con lock si estamos en transacción)
+    let query = database
       .select()
       .from(inventoryLots)
       .where(
@@ -108,15 +114,22 @@ export class LotService {
         )
       )
       .orderBy(asc(inventoryLots.entryDate), asc(inventoryLots.id));
+    
+    // Agregar FOR UPDATE si estamos en transacción para evitar race conditions
+    if (tx) {
+      query = query.for("update");
+    }
+    
+    const availableLots = await query;
 
     // Calcular stock total disponible
     const totalAvailable = availableLots.reduce(
-      (sum, lot) => sum + parseFloat(lot.currentQuantity),
+      (sum: number, lot: { currentQuantity: string }) => sum + parseFloat(lot.currentQuantity),
       0
     );
 
     if (totalAvailable < quantity) {
-      const [product] = await db
+      const [product] = await database
         .select()
         .from(products)
         .where(eq(products.id, productId));
@@ -139,7 +152,7 @@ export class LotService {
       const consumptionCost = toConsume * unitCost;
 
       // Registrar consumo
-      await db.insert(lotConsumptions).values({
+      await database.insert(lotConsumptions).values({
         lotId: lot.id,
         consumptionType,
         referenceType,
@@ -151,7 +164,7 @@ export class LotService {
 
       // Actualizar cantidad del lote
       const newQuantity = lotQty - toConsume;
-      await db
+      await database
         .update(inventoryLots)
         .set({
           currentQuantity: newQuantity.toString(),
@@ -171,8 +184,8 @@ export class LotService {
       remainingQuantity -= toConsume;
     }
 
-    // Actualizar caché de inventario
-    await this.updateInventoryCache(warehouseId, productId, -quantity);
+    // Actualizar caché de inventario (en la misma transacción)
+    await this.updateInventoryCache(warehouseId, productId, -quantity, database);
 
     return { consumptions, totalCost };
   }
@@ -400,33 +413,41 @@ export class LotService {
 
   /**
    * Mover lote completo a otro almacén (traslado completo)
+   * @param tx - Transacción opcional para garantizar atomicidad
    */
-  async moveLotToWarehouse(lotId: number, destinationWarehouseId: number): Promise<void> {
+  async moveLotToWarehouse(lotId: number, destinationWarehouseId: number, tx?: any): Promise<void> {
+    const database = tx || db;
     const lot = await this.getLotById(lotId);
     const quantity = parseFloat(lot.currentQuantity);
 
     // Actualizar caché del almacén origen (restar)
-    await this.updateInventoryCache(lot.warehouseId, lot.productId, -quantity);
+    await this.updateInventoryCache(lot.warehouseId, lot.productId, -quantity, database);
 
     // Mover el lote
-    await db
+    await database
       .update(inventoryLots)
       .set({ warehouseId: destinationWarehouseId })
       .where(eq(inventoryLots.id, lotId));
 
     // Actualizar caché del almacén destino (sumar)
-    await this.updateInventoryCache(destinationWarehouseId, lot.productId, quantity);
+    await this.updateInventoryCache(destinationWarehouseId, lot.productId, quantity, database);
   }
 
   /**
    * Actualiza el caché de inventario (tabla inventory)
+   * Usa FOR UPDATE para evitar race conditions
+   * @param database - Conexión o transacción a usar
    */
-  private async updateInventoryCache(
+  async updateInventoryCache(
     warehouseId: number,
     productId: number,
-    quantityChange: number
+    quantityChange: number,
+    database?: any
   ): Promise<void> {
-    const [existingStock] = await db
+    const conn = database || db;
+    
+    // Usar FOR UPDATE para bloquear el registro y evitar race conditions
+    let query = conn
       .select()
       .from(inventory)
       .where(
@@ -435,15 +456,22 @@ export class LotService {
           eq(inventory.productId, productId)
         )
       );
+    
+    // Solo agregar FOR UPDATE si estamos en una transacción
+    if (database) {
+      query = query.for("update");
+    }
+    
+    const [existingStock] = await query;
 
     if (existingStock) {
       const newQuantity = parseFloat(existingStock.currentQuantity) + quantityChange;
-      await db
+      await conn
         .update(inventory)
         .set({ currentQuantity: newQuantity.toString() })
         .where(eq(inventory.id, existingStock.id));
     } else {
-      await db.insert(inventory).values({
+      await conn.insert(inventory).values({
         warehouseId,
         productId,
         currentQuantity: quantityChange.toString(),

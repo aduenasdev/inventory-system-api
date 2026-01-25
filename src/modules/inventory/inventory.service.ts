@@ -81,7 +81,7 @@ export class InventoryService {
     return movementsWithLot;
   }
 
-  // Crear ajuste de inventario (con lógica de lotes)
+  // Crear ajuste de inventario (con lógica de lotes y transacción)
   async createAdjustment(data: {
     type: "ADJUSTMENT_ENTRY" | "ADJUSTMENT_EXIT";
     warehouseId: number;
@@ -117,37 +117,40 @@ export class InventoryService {
         );
       }
 
-      // Crear lote para el ajuste de entrada
-      const lotId = await lotService.createLot({
-        productId: data.productId,
-        warehouseId: data.warehouseId,
-        quantity: data.quantity,
-        originalCurrencyId,
-        originalUnitCost,
-        exchangeRate,
-        sourceType: "ADJUSTMENT",
-        sourceId: undefined,
-        sourceLotId: undefined,
-        entryDate: getTodayDateString(),
-      });
+      // Ejecutar en transacción para atomicidad
+      return await db.transaction(async (tx) => {
+        // Crear lote para el ajuste de entrada (pasando tx)
+        const lotId = await lotService.createLot({
+          productId: data.productId,
+          warehouseId: data.warehouseId,
+          quantity: data.quantity,
+          originalCurrencyId,
+          originalUnitCost,
+          exchangeRate,
+          sourceType: "ADJUSTMENT",
+          sourceId: undefined,
+          sourceLotId: undefined,
+          entryDate: getTodayDateString(),
+        }, undefined, tx);
 
-      // Registrar movimiento
-      await db.insert(inventoryMovements).values({
-        type: data.type,
-        status: "APPROVED",
-        warehouseId: data.warehouseId,
-        productId: data.productId,
-        quantity: data.quantity.toString(),
-        reference,
-        reason: data.reason,
-        lotId,
-      });
+        // Registrar movimiento
+        await tx.insert(inventoryMovements).values({
+          type: data.type,
+          status: "APPROVED",
+          warehouseId: data.warehouseId,
+          productId: data.productId,
+          quantity: data.quantity.toString(),
+          reference,
+          reason: data.reason,
+          lotId,
+        });
 
-      return {
-        message: "Ajuste de entrada creado exitosamente",
-        lotId,
-        reference,
-      };
+        return {
+          message: "Ajuste de entrada creado exitosamente",
+          lotId,
+          reference,
+        };
+      });
     } else {
       // Para salidas, consumir lotes FIFO
       const availableStock = await lotService.getStockFromLots(
@@ -161,36 +164,40 @@ export class InventoryService {
         );
       }
 
-      // Consumir lotes FIFO
-      const consumeResult = await lotService.consumeLotsFromWarehouse(
-        data.warehouseId,
-        data.productId,
-        data.quantity,
-        "ADJUSTMENT",
-        "inventory_movements",
-        null
-      );
+      // Ejecutar en transacción para atomicidad
+      return await db.transaction(async (tx) => {
+        // Consumir lotes FIFO (pasando tx)
+        const consumeResult = await lotService.consumeLotsFromWarehouse(
+          data.warehouseId,
+          data.productId,
+          data.quantity,
+          "ADJUSTMENT",
+          "inventory_movements",
+          null,
+          tx
+        );
 
-      // Registrar movimiento por cada consumo
-      for (const consumption of consumeResult.consumptions) {
-        await db.insert(inventoryMovements).values({
-          type: data.type,
-          status: "APPROVED",
-          warehouseId: data.warehouseId,
-          productId: data.productId,
-          quantity: consumption.quantity.toString(),
+        // Registrar movimiento por cada consumo
+        for (const consumption of consumeResult.consumptions) {
+          await tx.insert(inventoryMovements).values({
+            type: data.type,
+            status: "APPROVED",
+            warehouseId: data.warehouseId,
+            productId: data.productId,
+            quantity: consumption.quantity.toString(),
+            reference,
+            reason: `${data.reason} (Lote: ${consumption.lotCode})`,
+            lotId: consumption.lotId,
+          });
+        }
+
+        return {
+          message: "Ajuste de salida creado exitosamente",
           reference,
-          reason: `${data.reason} (Lote: ${consumption.lotCode})`,
-          lotId: consumption.lotId,
-        });
-      }
-
-      return {
-        message: "Ajuste de salida creado exitosamente",
-        reference,
-        consumedLots: consumeResult.consumptions.length,
-        totalCost: consumeResult.totalCost,
-      };
+          consumedLots: consumeResult.consumptions.length,
+          totalCost: consumeResult.totalCost,
+        };
+      });
     }
   }
 

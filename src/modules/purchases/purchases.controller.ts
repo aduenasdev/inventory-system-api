@@ -52,7 +52,8 @@ export const getAllPurchases = async (req: Request, res: Response) => {
 export const getPurchaseById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const purchase = await purchasesService.getPurchaseById(Number(id));
+    const userId = (res.locals.user as any).id;
+    const purchase = await purchasesService.getPurchaseById(Number(id), userId);
     res.json(purchase);
   } catch (error: any) {
     res.status(404).json({ error: error.message });
@@ -91,8 +92,10 @@ export const getCancelledPurchasesReport = async (
   res: Response
 ) => {
   try {
+    const userId = (res.locals.user as any).id;
     const { startDate, endDate } = req.query;
     const report = await purchasesService.getCancelledPurchasesReport(
+      userId,
       startDate as string,
       endDate as string
     );

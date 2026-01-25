@@ -214,8 +214,8 @@ export class TransfersService {
           const isCompleteLot = toTransfer >= lotQty;
 
           if (isCompleteLot) {
-            // Traslado completo: mover el lote íntegro
-            await lotService.moveLotToWarehouse(lot.id, transfer.destinationWarehouseId);
+            // Traslado completo: mover el lote íntegro (pasando tx para atomicidad)
+            await lotService.moveLotToWarehouse(lot.id, transfer.destinationWarehouseId, tx);
 
             // Registrar consumo para trazabilidad
             await tx.insert(inventoryMovements).values({
@@ -242,14 +242,15 @@ export class TransfersService {
           } else {
             // Traslado parcial: consumir del lote origen y crear nuevo lote en destino
             
-            // Registrar consumo del lote origen
+            // Registrar consumo del lote origen (pasando tx para atomicidad)
             const consumeResult = await lotService.consumeLotsFromWarehouse(
               transfer.originWarehouseId,
               detail.productId,
               toTransfer,
               "TRANSFER",
               "transfers_detail",
-              detail.id
+              detail.id,
+              tx
             );
 
             // Crear nuevo lote en destino con el mismo costo del lote consumido
@@ -260,7 +261,7 @@ export class TransfersService {
                 .from(inventoryLots)
                 .where(eq(inventoryLots.id, consumption.lotId));
 
-              // Crear lote en destino
+              // Crear lote en destino (pasando tx para atomicidad)
               const newLotId = await lotService.createLot({
                 productId: detail.productId,
                 warehouseId: transfer.destinationWarehouseId,
@@ -272,7 +273,7 @@ export class TransfersService {
                 sourceId: id,
                 sourceLotId: consumption.lotId,
                 entryDate: getTodayDateString(),
-              });
+              }, undefined, tx);
 
               await tx.insert(inventoryMovements).values({
                 type: "TRANSFER_EXIT",

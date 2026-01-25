@@ -232,7 +232,7 @@ export class PurchasesService {
           const originalUnitCost = parseFloat(detail.unitCost);
           const exchangeRate = parseFloat(detail.exchangeRateUsed);
 
-          // Crear lote de inventario
+          // Crear lote de inventario (pasando tx para atomicidad)
           const lotId = await lotService.createLot({
             productId: detail.productId,
             warehouseId: data.warehouseId,
@@ -243,7 +243,7 @@ export class PurchasesService {
             sourceType: "PURCHASE",
             sourceId: purchaseId,
             entryDate: normalizedDate,
-          }, lineNumber);
+          }, lineNumber, tx);
 
           // Actualizar el detalle con la referencia al lote (usando ID directo)
           await tx
@@ -316,6 +316,7 @@ export class PurchasesService {
   }
 
   // Obtener compras filtradas según permisos del usuario y rango de fechas
+  // RESTRICCIÓN: Solo ve compras de almacenes asignados al usuario
   async getAllPurchases(
     userId: number, 
     userPermissions: string[], 
@@ -329,14 +330,33 @@ export class PurchasesService {
     const hasAccept = userPermissions.includes("purchases.accept");
     const hasCreate = userPermissions.includes("purchases.create");
 
+    // Obtener almacenes asignados al usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const assignedWarehouseIds = userWarehousesData.map(uw => uw.warehouseId);
+
+    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    if (assignedWarehouseIds.length === 0) {
+      return [];
+    }
+
     // Condiciones base
     const baseConditions: any[] = [
       gte(purchases.date, sql`${startDate}`),
-      lte(purchases.date, sql`${endDate}`)
+      lte(purchases.date, sql`${endDate}`),
+      // RESTRICCIÓN: Solo almacenes asignados al usuario
+      inArray(purchases.warehouseId, assignedWarehouseIds)
     ];
 
-    // Filtro opcional por almacén
+    // Filtro opcional por almacén (debe estar en sus almacenes asignados)
     if (warehouseId) {
+      if (!assignedWarehouseIds.includes(warehouseId)) {
+        // Silenciosamente retorna vacío si pide un almacén que no le pertenece
+        return [];
+      }
       baseConditions.push(eq(purchases.warehouseId, warehouseId));
     }
 
@@ -347,7 +367,7 @@ export class PurchasesService {
 
     const baseCondition = and(...baseConditions);
 
-    // Si tiene purchases.read → ve TODAS (dentro del rango y filtros)
+    // Si tiene purchases.read → ve TODAS de sus almacenes (dentro del rango y filtros)
     if (hasReadAll) {
       return await this.getPurchasesWithUserNames(baseCondition);
     }
@@ -377,7 +397,7 @@ export class PurchasesService {
       return [];
     }
 
-    // Combinar: (permisos OR) AND (condiciones base)
+    // Combinar: (permisos OR) AND (condiciones base incluyendo restricción de almacenes)
     return await this.getPurchasesWithUserNames(
       and(baseCondition, or(...permissionConditions))
     );
@@ -415,14 +435,17 @@ export class PurchasesService {
   }
 
   // Obtener compra por ID con detalles (para API externa, con nombres de usuarios)
-  async getPurchaseById(id: number) {
-    const results = await this.getPurchasesWithUserNames(eq(purchases.id, id));
+  // RESTRICCIÓN: Solo puede ver compras de sus almacenes asignados
+  async getPurchaseById(id: number, userId: number) {
+    // Primero obtener la compra básica para validar el almacén
+    const purchaseBasic = await this.getPurchaseByIdInternal(id);
     
-    const purchase = results[0];
+    // Validar que el usuario pertenece al almacén de la compra
+    await this.validateUserBelongsToWarehouse(userId, purchaseBasic.warehouseId);
 
-    if (!purchase) {
-      throw new NotFoundError("Factura de compra no encontrada");
-    }
+    // Ahora obtener con todos los datos de usuarios
+    const results = await this.getPurchasesWithUserNames(eq(purchases.id, id));
+    const purchase = results[0]!;
 
     const details = await db
       .select({
@@ -445,8 +468,12 @@ export class PurchasesService {
   }
 
   // Aceptar factura de compra (genera lotes y movimientos) - con transacción
+  // RESTRICCIÓN: Solo puede aceptar compras de sus almacenes asignados
   async acceptPurchase(id: number, userId: number) {
     const purchase = await this.getPurchaseByIdInternal(id);
+
+    // Validar que el usuario pertenece al almacén de la compra
+    await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
 
     if (purchase.status !== "PENDING") {
       throw new ValidationError("Solo se pueden aceptar facturas en estado PENDING");
@@ -472,7 +499,7 @@ export class PurchasesService {
         const originalUnitCost = parseFloat(detail.unitCost);
         const exchangeRate = parseFloat(detail.exchangeRateUsed || "1");
 
-        // Crear lote de inventario
+        // Crear lote de inventario (pasando tx para atomicidad)
         const lotId = await lotService.createLot({
           productId: detail.productId,
           warehouseId: purchase.warehouseId,
@@ -483,7 +510,7 @@ export class PurchasesService {
           sourceType: "PURCHASE",
           sourceId: id,
           entryDate: normalizeBusinessDate(purchase.date),
-        }, lineNumber);
+        }, lineNumber, tx);
 
         // Actualizar el detalle con la referencia al lote (usando ID directo)
         await tx
@@ -509,8 +536,12 @@ export class PurchasesService {
   }
 
   // Cancelar factura de compra (con transacción)
+  // RESTRICCIÓN: Solo puede cancelar compras de sus almacenes asignados
   async cancelPurchase(id: number, cancellationReason: string, userId: number) {
     const purchase = await this.getPurchaseByIdInternal(id);
+
+    // Validar que el usuario pertenece al almacén de la compra
+    await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
 
     if (purchase.status === "CANCELLED") {
       throw new ConflictError("La factura ya está cancelada");
@@ -543,6 +574,8 @@ export class PurchasesService {
       return await db.transaction(async (tx) => {
         // Revertir lotes y crear movimientos
         for (const lot of purchaseLots) {
+          const lotQuantity = parseFloat(lot.initialQuantity);
+          
           // Marcar lote como agotado
           await tx
             .update(inventoryLots)
@@ -551,6 +584,14 @@ export class PurchasesService {
               currentQuantity: "0",
             })
             .where(eq(inventoryLots.id, lot.id));
+
+          // Actualizar caché de inventario (restar la cantidad del lote)
+          await lotService.updateInventoryCache(
+            lot.warehouseId, 
+            lot.productId, 
+            -lotQuantity, 
+            tx
+          );
 
           // Crear movimiento de reversión
           await tx.insert(inventoryMovements).values({
@@ -595,8 +636,25 @@ export class PurchasesService {
   }
 
   // Reporte de facturas canceladas
-  async getCancelledPurchasesReport(startDate?: string, endDate?: string) {
-    const conditions = [eq(purchases.status, "CANCELLED")];
+  // RESTRICCIÓN: Solo ve facturas canceladas de sus almacenes asignados
+  async getCancelledPurchasesReport(userId: number, startDate?: string, endDate?: string) {
+    // Obtener almacenes asignados al usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const assignedWarehouseIds = userWarehousesData.map(uw => uw.warehouseId);
+
+    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    if (assignedWarehouseIds.length === 0) {
+      return [];
+    }
+
+    const conditions = [
+      eq(purchases.status, "CANCELLED"),
+      inArray(purchases.warehouseId, assignedWarehouseIds)
+    ];
 
     if (startDate) {
       conditions.push(gte(purchases.cancelledAt, sql`${startDate}`));

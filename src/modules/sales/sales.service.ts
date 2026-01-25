@@ -337,14 +337,15 @@ export class SalesService {
           const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
           const revenue = unitPrice * quantity;
 
-          // Consumir lotes FIFO
+          // Consumir lotes FIFO (pasando tx para atomicidad)
           const consumeResult = await lotService.consumeLotsFromWarehouse(
             data.warehouseId,
             detail.productId,
             quantity,
             "SALE",
             "sales_detail",
-            detailId
+            detailId,
+            tx
           );
 
           const realCost = consumeResult.totalCost;
@@ -390,14 +391,15 @@ export class SalesService {
       const unitPrice = parseFloat(detail.convertedUnitPrice || detail.unitPrice);
       const revenue = unitPrice * quantity;
 
-      // Consumir lotes FIFO
+      // Consumir lotes FIFO (pasando tx para atomicidad)
       const consumeResult = await lotService.consumeLotsFromWarehouse(
         sale.warehouseId,
         detail.productId,
         quantity,
         "SALE",
         "sales_detail",
-        detail.id
+        detail.id,
+        database
       );
 
       const realCost = consumeResult.totalCost;
@@ -732,7 +734,7 @@ export class SalesService {
         for (const consumption of consumptions) {
           const quantity = parseFloat(consumption.quantity);
 
-          // Crear lote de devolución
+          // Crear lote de devolución (pasando tx para atomicidad)
           await lotService.createLot({
             productId: detail.productId,
             warehouseId: sale.warehouseId,
@@ -743,7 +745,7 @@ export class SalesService {
             sourceType: "ADJUSTMENT",
             sourceId: id,
             entryDate: getTodayDateString(),
-          });
+          }, undefined, tx);
 
           // Crear movimiento de reversión
           await tx.insert(inventoryMovements).values({
