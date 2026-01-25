@@ -17,6 +17,10 @@ import {
   getAvailableProducts,
   getUserWarehouses,
   checkExchangeRates,
+  getCurrencies,
+  getPaymentTypes,
+  getCategories,
+  getUnits,
 } from "./sales.controller";
 import {
   createSaleSchema,
@@ -44,6 +48,38 @@ router.get(
   authMiddleware,
   hasPermission("sales.create"),
   getUserWarehouses
+);
+
+// GET /sales/currencies - Obtener monedas activas
+router.get(
+  "/currencies",
+  authMiddleware,
+  hasPermission("sales.create"),
+  getCurrencies
+);
+
+// GET /sales/payment-types - Obtener tipos de pago activos
+router.get(
+  "/payment-types",
+  authMiddleware,
+  hasPermission("sales.create"),
+  getPaymentTypes
+);
+
+// GET /sales/categories - Obtener categorías activas
+router.get(
+  "/categories",
+  authMiddleware,
+  hasPermission("sales.create"),
+  getCategories
+);
+
+// GET /sales/units - Obtener unidades activas
+router.get(
+  "/units",
+  authMiddleware,
+  hasPermission("sales.create"),
+  getUnits
 );
 
 // GET /sales/exchange-rates - Verificar tasas de cambio disponibles

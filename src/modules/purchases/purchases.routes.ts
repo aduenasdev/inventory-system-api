@@ -14,6 +14,7 @@ import {
   getCurrencies,
   checkExchangeRates,
   getCategories,
+  getUnits,
 } from "./purchases.controller";
 import {
   createPurchaseSchema,
@@ -70,6 +71,14 @@ router.get(
   authMiddleware,
   hasPermission("purchases.create"),
   getCategories
+);
+
+// GET /purchases/units - Obtener unidades de medida
+router.get(
+  "/units",
+  authMiddleware,
+  hasPermission("purchases.create"),
+  getUnits
 );
 
 // ========== RUTAS PRINCIPALES ==========

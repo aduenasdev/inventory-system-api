@@ -90,13 +90,22 @@ export class PurchasesService {
   }
 
   // Obtener tasa de cambio del día (de moneda origen a CUP)
-  // Las tasas se guardan como CUP → X, así que buscamos CUP → fromCurrency y calculamos el inverso
+  // Las tasas se guardan como CUP → X, donde rate significa "cuántos CUP vale 1 X"
+  // Ejemplo: CUP → USD con rate=370 significa 1 USD = 370 CUP
   private async getExchangeRateToCUP(fromCurrencyId: number, date: string): Promise<number> {
     if (fromCurrencyId === BASE_CURRENCY_ID) {
       return 1; // Ya está en CUP
     }
 
-    // Buscar tasa CUP → fromCurrency (así es como se guardan)
+    // Obtener nombre de la moneda para mensajes de error
+    const [currency] = await db
+      .select({ name: currencies.name, code: currencies.code })
+      .from(currencies)
+      .where(eq(currencies.id, fromCurrencyId));
+
+    const currencyName = currency ? `${currency.name} (${currency.code})` : `ID ${fromCurrencyId}`;
+
+    // Buscar tasa CUP → fromCurrency
     const [rate] = await db
       .select()
       .from(exchangeRates)
@@ -110,18 +119,19 @@ export class PurchasesService {
 
     if (!rate) {
       throw new NotFoundError(
-        `No existe tasa de cambio para la fecha ${date} de la moneda ID ${fromCurrencyId} a CUP. Debe crearla antes de continuar.`
+        `No existe tasa de cambio para la fecha ${date} de ${currencyName} a CUP. Debe crearla antes de continuar.`
       );
     }
 
-    // La tasa guardada es CUP → X (ej: 1 CUP = 0.0025 USD)
-    // Necesitamos X → CUP, así que calculamos el inverso (ej: 1 USD = 400 CUP)
+    // La tasa guardada es directa: rate = cuántos CUP vale 1 unidad de la moneda extranjera
+    // Ejemplo: CUP → USD con rate=370 significa 1 USD = 370 CUP
+    // Para convertir de USD a CUP: valor_usd * 370 = valor_cup
     const rateValue = parseFloat(rate.rate);
     if (rateValue === 0) {
       throw new ValidationError("La tasa de cambio no puede ser cero");
     }
     
-    return 1 / rateValue;
+    return rateValue; // Usar directo, NO invertir
   }
 
   // Crear factura de compra (con transacción para garantizar consistencia)
@@ -130,6 +140,7 @@ export class PurchasesService {
     supplierPhone?: string;
     warehouseId: number;
     currencyId: number;
+    date?: string; // Fecha de la compra (opcional, default: hoy)
     notes?: string;
     autoApprove?: boolean;
     details: Array<{
@@ -148,11 +159,18 @@ export class PurchasesService {
     // Verificar si puede auto-aprobar
     const canAutoApprove = data.autoApprove && data.userPermissions.includes("purchases.accept");
     
-    // Usar fecha actual del servidor (zona horaria local)
-    const normalizedDate = getTodayDateString();
+    // Fecha de la compra: usar la proporcionada o la fecha actual
+    const today = getTodayDateString();
+    const purchaseDate = data.date ? normalizeBusinessDate(data.date) : today;
+    
+    // Validar que la fecha no sea futura
+    if (purchaseDate > today) {
+      throw new ValidationError("No se pueden registrar compras con fecha futura");
+    }
 
-    // Obtener tasa de cambio de la moneda de la factura a CUP
-    const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, normalizedDate);
+    // Obtener tasa de cambio de la moneda de la factura a CUP (usando la fecha de la compra)
+    // Si no existe tasa para esa fecha, lanzará error
+    const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, purchaseDate);
 
     // Validar que hay al menos un detalle
     if (!data.details || data.details.length === 0) {
@@ -211,7 +229,7 @@ export class PurchasesService {
         invoiceNumber,
         supplierName: data.supplierName || null,
         supplierPhone: data.supplierPhone || null,
-        date: sql`${normalizedDate}`,
+        date: sql`${purchaseDate}`,
         warehouseId: data.warehouseId,
         currencyId: data.currencyId,
         status: canAutoApprove ? "APPROVED" : "PENDING",
@@ -246,8 +264,11 @@ export class PurchasesService {
           const quantity = parseFloat(detail.quantity);
           const originalUnitCost = parseFloat(detail.unitCost);
           const exchangeRate = parseFloat(detail.exchangeRateUsed);
+          const unitCostBase = parseFloat(detail.convertedUnitCost); // Usar el ya calculado
 
           // Crear lote de inventario (pasando tx para atomicidad)
+          // NOTA: entryDate usa la fecha de HOY (entrada real al almacén), no la fecha de compra
+          // La fecha de compra solo afecta la tasa de cambio, no el orden FIFO
           const lotId = await lotService.createLot({
             productId: detail.productId,
             warehouseId: data.warehouseId,
@@ -255,9 +276,10 @@ export class PurchasesService {
             originalCurrencyId: detail.originalCurrencyId,
             originalUnitCost,
             exchangeRate,
+            unitCostBase, // Pasar costo ya convertido para evitar recálculo
             sourceType: "PURCHASE",
             sourceId: purchaseId,
-            entryDate: normalizedDate,
+            entryDate: today, // Fecha real de entrada (HOY), no fecha contable de compra
           }, lineNumber, tx);
 
           // Actualizar el detalle con la referencia al lote (usando ID directo)
@@ -506,6 +528,10 @@ export class PurchasesService {
         .where(eq(purchases.id, id));
 
       // Crear lotes y movimientos por cada línea de detalle
+      // NOTA: La fecha del lote es HOY (fecha de aprobación/entrada real), no la fecha de compra
+      // Esto mantiene el FIFO correcto. La tasa de cambio ya está fijada en el detalle.
+      const todayForLot = getTodayDateString();
+      
       for (let i = 0; i < purchase.details.length; i++) {
         const detail = purchase.details[i];
         const lineNumber = i + 1;
@@ -513,6 +539,9 @@ export class PurchasesService {
         const quantity = parseFloat(detail.quantity);
         const originalUnitCost = parseFloat(detail.unitCost);
         const exchangeRate = parseFloat(detail.exchangeRateUsed || "1");
+        const unitCostBase = detail.convertedUnitCost 
+          ? parseFloat(detail.convertedUnitCost) 
+          : originalUnitCost * exchangeRate; // Usar el ya calculado o calcular
 
         // Crear lote de inventario (pasando tx para atomicidad)
         const lotId = await lotService.createLot({
@@ -522,9 +551,10 @@ export class PurchasesService {
           originalCurrencyId: detail.originalCurrencyId || purchase.currencyId,
           originalUnitCost,
           exchangeRate,
+          unitCostBase, // Pasar costo ya convertido para evitar recálculo
           sourceType: "PURCHASE",
           sourceId: id,
-          entryDate: normalizeBusinessDate(purchase.date),
+          entryDate: todayForLot, // Fecha de aprobación (entrada real), no fecha de compra
         }, lineNumber, tx);
 
         // Actualizar el detalle con la referencia al lote (usando ID directo)
@@ -689,6 +719,7 @@ export class PurchasesService {
   // ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
 
   // Obtener almacenes disponibles del usuario (para selector de compra)
+  // Solo devuelve almacenes activos asignados al usuario
   async getUserWarehouses(userId: number) {
     const userWarehousesData = await db
       .select({
@@ -698,7 +729,12 @@ export class PurchasesService {
       })
       .from(userWarehouses)
       .innerJoin(warehouses, eq(userWarehouses.warehouseId, warehouses.id))
-      .where(eq(userWarehouses.userId, userId));
+      .where(
+        and(
+          eq(userWarehouses.userId, userId),
+          eq(warehouses.active, true)
+        )
+      );
 
     return userWarehousesData;
   }
@@ -747,7 +783,7 @@ export class PurchasesService {
     return productList;
   }
 
-  // Obtener todas las monedas disponibles
+  // Obtener todas las monedas activas
   async getCurrencies() {
     return await db
       .select({
@@ -757,6 +793,7 @@ export class PurchasesService {
         name: currencies.name,
       })
       .from(currencies)
+      .where(eq(currencies.isActive, true))
       .orderBy(currencies.id);
   }
 
@@ -822,7 +859,7 @@ export class PurchasesService {
     };
   }
 
-  // Obtener categorías (para filtro de productos)
+  // Obtener categorías activas (para filtro de productos)
   async getCategories() {
     return await db
       .select({
@@ -830,6 +867,21 @@ export class PurchasesService {
         name: categories.name,
       })
       .from(categories)
+      .where(eq(categories.isActive, true))
       .orderBy(categories.name);
+  }
+
+  // Obtener unidades de medida activas
+  async getUnits() {
+    return await db
+      .select({
+        id: units.id,
+        name: units.name,
+        shortName: units.shortName,
+        type: units.type,
+      })
+      .from(units)
+      .where(eq(units.isActive, true))
+      .orderBy(units.name);
   }
 }

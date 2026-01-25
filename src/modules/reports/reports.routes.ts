@@ -1,0 +1,80 @@
+import { Router } from "express";
+import { authMiddleware } from "../../middlewares/auth.middleware";
+import { hasPermission } from "../../middlewares/authorization.middleware";
+import { validate } from "../../middlewares/validate";
+import {
+  getStockReport,
+  getValorizedStock,
+  getLowStock,
+  getMovementsReport,
+  getKardex,
+} from "./reports.controller";
+import {
+  getStockReportSchema,
+  getValorizedStockSchema,
+  getLowStockSchema,
+  getMovementsReportSchema,
+  getKardexSchema,
+} from "./reports.schemas";
+
+const router = Router();
+
+// ========== REPORTE 1: STOCK ACTUAL ==========
+// GET /reports/stock - Stock actual de productos por almacén
+// Filtros: warehouseId (opcional), productId (opcional), categoryId (opcional)
+router.get(
+  "/stock",
+  authMiddleware,
+  hasPermission("reports.stock.read"),
+  validate(getStockReportSchema),
+  getStockReport
+);
+
+// ========== REPORTE 2: STOCK VALORIZADO ==========
+// GET /reports/stock/valorized - Stock con costo total en CUP
+// Filtros: warehouseId (opcional), productId (opcional), categoryId (opcional)
+router.get(
+  "/stock/valorized",
+  authMiddleware,
+  hasPermission("reports.stock.valorized"),
+  validate(getValorizedStockSchema),
+  getValorizedStock
+);
+
+// ========== REPORTE 3: BAJO MÍNIMO ==========
+// GET /reports/low-stock - Productos sin stock o bajo mínimo
+// Filtros: warehouseId (opcional), minThreshold (optional, default: 10)
+router.get(
+  "/low-stock",
+  authMiddleware,
+  hasPermission("reports.stock.read"),
+  validate(getLowStockSchema),
+  getLowStock
+);
+
+// ========== REPORTE 4: MOVIMIENTOS ==========
+// GET /reports/movements - Historial de movimientos de inventario
+// Filtros: startDate (obligatorio), endDate (opcional), warehouseId (opcional), 
+//          type (opcional: INVOICE_ENTRY, SALE_EXIT, TRANSFER_ENTRY, TRANSFER_EXIT, ADJUSTMENT_ENTRY, ADJUSTMENT_EXIT),
+//          productId (opcional)
+router.get(
+  "/movements",
+  authMiddleware,
+  hasPermission("reports.movements.read"),
+  validate(getMovementsReportSchema),
+  getMovementsReport
+);
+
+// ========== REPORTE 5: KARDEX ==========
+// GET /reports/kardex - Historial de movimientos de un producto específico
+// Parámetros: productId (obligatorio)
+// Filtros: warehouseId (opcional), startDate (opcional), endDate (opcional)
+router.get(
+  "/kardex",
+  authMiddleware,
+  hasPermission("reports.movements.read"),
+  validate(getKardexSchema),
+  getKardex
+);
+
+export default router;

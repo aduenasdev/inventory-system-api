@@ -72,14 +72,27 @@ export class SalesService {
     }
   }
 
+  // Obtener nombre de moneda para mensajes de error
+  private async getCurrencyName(currencyId: number): Promise<string> {
+    const [currency] = await db
+      .select({ name: currencies.name, code: currencies.code })
+      .from(currencies)
+      .where(eq(currencies.id, currencyId));
+    
+    return currency ? `${currency.name} (${currency.code})` : `ID ${currencyId}`;
+  }
+
   // Obtener tasa de cambio
-  // Las tasas se guardan como CUP (1) → X, así que manejamos ambas direcciones
+  // Las tasas se guardan como CUP (1) → X, donde rate significa "cuántos CUP vale 1 X"
+  // Ejemplo: CUP → USD con rate=370 significa 1 USD = 370 CUP
   private async getExchangeRate(fromCurrencyId: number, toCurrencyId: number, date: string): Promise<number | null> {
     if (fromCurrencyId === toCurrencyId) {
       return null;
     }
 
-    // Caso 1: Buscamos X → CUP (necesitamos inverso de CUP → X)
+    // Caso 1: Buscamos X → CUP 
+    // La tasa guardada es CUP → X = rate (cuántos CUP vale 1 X)
+    // Para convertir X → CUP: valor_x * rate = valor_cup
     if (toCurrencyId === BASE_CURRENCY_ID) {
       const [rate] = await db
         .select()
@@ -93,16 +106,20 @@ export class SalesService {
         );
 
       if (!rate) {
+        const currencyName = await this.getCurrencyName(fromCurrencyId);
         throw new NotFoundError(
-          `No existe tasa de cambio para la fecha ${date} de la moneda ID ${fromCurrencyId} a CUP. Debe crearla antes de continuar.`
+          `No existe tasa de cambio para la fecha ${date} de ${currencyName} a CUP. Debe crearla antes de continuar.`
         );
       }
 
       const rateValue = parseFloat(rate.rate);
-      return rateValue !== 0 ? 1 / rateValue : null;
+      // Usar directo: para convertir USD a CUP, multiplicar por la tasa (370)
+      return rateValue !== 0 ? rateValue : null;
     }
 
-    // Caso 2: Buscamos CUP → X (directo)
+    // Caso 2: Buscamos CUP → X
+    // La tasa guardada es CUP → X = rate (cuántos CUP vale 1 X)
+    // Para convertir CUP → X: valor_cup / rate = valor_x
     if (fromCurrencyId === BASE_CURRENCY_ID) {
       const [rate] = await db
         .select()
@@ -116,15 +133,20 @@ export class SalesService {
         );
 
       if (!rate) {
+        const currencyName = await this.getCurrencyName(toCurrencyId);
         throw new NotFoundError(
-          `No existe tasa de cambio para la fecha ${date} de CUP a la moneda ID ${toCurrencyId}. Debe crearla antes de continuar.`
+          `No existe tasa de cambio para la fecha ${date} de CUP a ${currencyName}. Debe crearla antes de continuar.`
         );
       }
 
-      return parseFloat(rate.rate);
+      const rateValue = parseFloat(rate.rate);
+      // Para convertir CUP a USD: dividir por la tasa (370)
+      return rateValue !== 0 ? 1 / rateValue : null;
     }
 
     // Caso 3: X → Y (ambas diferentes de CUP) - convertir via CUP
+    // Primero X → CUP (multiplicar por rate de X)
+    // Luego CUP → Y (dividir por rate de Y)
     const rateXtoCUP: number | null = await this.getExchangeRate(fromCurrencyId, BASE_CURRENCY_ID, date);
     const rateCUPtoY: number | null = await this.getExchangeRate(BASE_CURRENCY_ID, toCurrencyId, date);
     
@@ -176,6 +198,23 @@ export class SalesService {
     }
   }
 
+  // Validar que el usuario pertenece al almacén
+  private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
+    const [userWarehouse] = await db
+      .select()
+      .from(userWarehouses)
+      .where(
+        and(
+          eq(userWarehouses.userId, userId),
+          eq(userWarehouses.warehouseId, warehouseId)
+        )
+      );
+    
+    if (!userWarehouse) {
+      throw new ForbiddenError(`No tienes permiso para realizar ventas en este almacén`);
+    }
+  }
+
   // Crear factura de venta (con transacción para garantizar consistencia)
   async createSale(data: {
     customerName?: string;
@@ -183,6 +222,8 @@ export class SalesService {
     warehouseId: number;
     currencyId: number;
     paymentTypeId?: number;
+    date?: string; // Fecha de la venta (opcional, default: hoy)
+    backdateReason?: string; // Requerido si date es retroactiva
     notes?: string;
     autoApprove?: boolean;
     details: Array<{
@@ -197,12 +238,37 @@ export class SalesService {
     // Validaciones previas (fuera de transacción para fallar rápido)
     await this.validateWarehouseExists(data.warehouseId);
     await this.validateCurrencyExists(data.currencyId);
+    await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
 
     // Verificar si puede auto-aprobar
     const canAutoApprove = data.autoApprove && data.userPermissions.includes("sales.accept");
     
-    // Usar fecha actual del servidor
-    const todayDate = getTodayDateString();
+    // Fecha de la venta: usar la proporcionada o la fecha actual
+    const today = getTodayDateString();
+    const saleDate = data.date ? normalizeBusinessDate(data.date) : today;
+    const isBackdated = saleDate < today;
+    
+    // Validar fecha retroactiva
+    if (isBackdated) {
+      // Verificar permiso especial para fechas retroactivas
+      if (!data.userPermissions.includes("sales.backdate")) {
+        throw new ForbiddenError(
+          "No tiene permiso para crear ventas con fecha retroactiva. Requiere el permiso 'sales.backdate'."
+        );
+      }
+      
+      // Exigir motivo obligatorio
+      if (!data.backdateReason || data.backdateReason.trim().length < 10) {
+        throw new ValidationError(
+          "Debe proporcionar un motivo para la fecha retroactiva (mínimo 10 caracteres) en el campo 'backdateReason'."
+        );
+      }
+    }
+    
+    // Validar que la fecha no sea futura
+    if (saleDate > today) {
+      throw new ValidationError("No se pueden registrar ventas con fecha futura");
+    }
 
     // Validar que hay al menos un detalle
     if (!data.details || data.details.length === 0) {
@@ -237,23 +303,19 @@ export class SalesService {
       await this.checkStock(data.warehouseId, detail.productId, detail.quantity);
     }
 
-    // Validar tasas de cambio ANTES de procesar (si hay productos en moneda diferente)
-    for (const detail of data.details) {
-      const [product] = await db
-        .select({ currencyId: products.currencyId, name: products.name })
-        .from(products)
-        .where(eq(products.id, detail.productId));
-
-      if (product && product.currencyId !== data.currencyId) {
-        // Verificar que existe tasa de cambio para hoy
-        await this.validateExchangeRateExists(product.currencyId, data.currencyId, todayDate, product.name);
-      }
+    // Validar tasa de cambio si la factura NO está en CUP (usando la fecha de la venta)
+    if (data.currencyId !== BASE_CURRENCY_ID) {
+      await this.validateExchangeRateExists(data.currencyId, BASE_CURRENCY_ID, saleDate);
     }
 
-    // Usar fecha actual del servidor (zona horaria local)
-    const normalizedDate = todayDate;
+    // Preparar notas con motivo de fecha retroactiva si aplica
+    let finalNotes = data.notes || "";
+    if (isBackdated) {
+      const backdateNote = `[FECHA RETROACTIVA: ${data.backdateReason}]`;
+      finalNotes = finalNotes ? `${backdateNote} ${finalNotes}` : backdateNote;
+    }
 
-    // Procesar conversión de monedas (fuera de transacción)
+    // Procesar detalles (fuera de transacción)
     let subtotal = 0;
 
     const detailsWithConversion = await Promise.all(
@@ -277,20 +339,29 @@ export class SalesService {
           throw new NotFoundError(`Tipo de pago con ID ${detail.paymentTypeId} no encontrado`);
         }
 
-        const productCurrencyId = product.currencyId;
+        // El precio de venta viene en la moneda de la factura (no del producto)
+        // Solo calculamos el precio convertido a CUP para referencia/reportes si la factura no es en CUP
+        const facturaCurrencyId = data.currencyId;
         let convertedUnitPrice = detail.unitPrice;
         let exchangeRateUsed = null;
 
-        if (productCurrencyId !== data.currencyId) {
-          exchangeRateUsed = await this.getExchangeRate(
-            productCurrencyId,
-            data.currencyId,
-            normalizedDate
+        // Si la factura NO está en CUP, guardamos la tasa para poder convertir a CUP después (reportes)
+        // IMPORTANTE: Usamos la tasa de la fecha de la venta, no de hoy
+        if (facturaCurrencyId !== BASE_CURRENCY_ID) {
+          // Obtener tasa de la moneda de factura a CUP
+          // Ejemplo: Factura en USD, tasa USD→CUP = 370
+          // convertedUnitPrice = precio en USD * 370 = precio equivalente en CUP
+          const rateToCUP = await this.getExchangeRate(
+            facturaCurrencyId,
+            BASE_CURRENCY_ID,
+            saleDate // Usar fecha de la venta para obtener la tasa correcta
           );
-          convertedUnitPrice = detail.unitPrice * (exchangeRateUsed || 1);
+          exchangeRateUsed = rateToCUP;
+          convertedUnitPrice = detail.unitPrice * (rateToCUP || 1);
         }
 
-        const lineSubtotal = convertedUnitPrice * detail.quantity;
+        // El subtotal siempre está en la moneda de la factura
+        const lineSubtotal = detail.unitPrice * detail.quantity;
         subtotal += lineSubtotal;
 
         return {
@@ -299,9 +370,9 @@ export class SalesService {
           quantity: detail.quantity.toString(),
           unitPrice: detail.unitPrice.toString(),
           paymentTypeId: detail.paymentTypeId,
-          originalCurrencyId: productCurrencyId,
+          originalCurrencyId: facturaCurrencyId, // La moneda original es la de la factura
           exchangeRateUsed: exchangeRateUsed?.toString() || null,
-          convertedUnitPrice: convertedUnitPrice.toString(),
+          convertedUnitPrice: convertedUnitPrice.toString(), // Precio convertido a CUP (si aplica)
           subtotal: lineSubtotal.toString(),
         };
       })
@@ -317,14 +388,14 @@ export class SalesService {
         invoiceNumber,
         customerName: data.customerName || null,
         customerPhone: data.customerPhone || null,
-        date: sql`${normalizedDate}`,
+        date: sql`${saleDate}`, // Usar fecha de venta (puede ser retroactiva)
         warehouseId: data.warehouseId,
         currencyId: data.currencyId,
         paymentTypeId: data.paymentTypeId || null,
         status: canAutoApprove ? "APPROVED" : "PENDING",
         subtotal: subtotal.toString(),
         total: subtotal.toString(),
-        notes: data.notes || null,
+        notes: finalNotes || null, // Incluye motivo de fecha retroactiva si aplica
         createdBy: data.userId,
         acceptedBy: canAutoApprove ? data.userId : null,
         acceptedAt: canAutoApprove ? new Date() : null,
@@ -1199,7 +1270,7 @@ export class SalesService {
     };
   }
 
-  // Obtener almacenes disponibles para el usuario (para selector de venta)
+  // Obtener almacenes activos disponibles para el usuario (para selector de venta)
   async getUserWarehouses(userId: number) {
     const userWarehousesData = await db
       .select({
@@ -1209,7 +1280,12 @@ export class SalesService {
       })
       .from(userWarehouses)
       .innerJoin(warehouses, eq(userWarehouses.warehouseId, warehouses.id))
-      .where(eq(userWarehouses.userId, userId));
+      .where(
+        and(
+          eq(userWarehouses.userId, userId),
+          eq(warehouses.active, true)
+        )
+      );
 
     return userWarehousesData;
   }
@@ -1272,5 +1348,58 @@ export class SalesService {
         ? "Puede crear ventas con esta moneda"
         : `No hay tasa de cambio para ${selectedCurrency?.symbol || "la moneda seleccionada"} el día ${today}`,
     };
+  }
+
+  // Obtener monedas activas
+  async getCurrencies() {
+    return await db
+      .select({
+        id: currencies.id,
+        code: currencies.code,
+        symbol: currencies.symbol,
+        name: currencies.name,
+      })
+      .from(currencies)
+      .where(eq(currencies.isActive, true))
+      .orderBy(currencies.id);
+  }
+
+  // Obtener tipos de pago activos
+  async getPaymentTypes() {
+    return await db
+      .select({
+        id: paymentTypes.id,
+        type: paymentTypes.type,
+        description: paymentTypes.description,
+      })
+      .from(paymentTypes)
+      .where(eq(paymentTypes.isActive, true))
+      .orderBy(paymentTypes.type);
+  }
+
+  // Obtener categorías activas
+  async getCategories() {
+    return await db
+      .select({
+        id: categories.id,
+        name: categories.name,
+      })
+      .from(categories)
+      .where(eq(categories.isActive, true))
+      .orderBy(categories.name);
+  }
+
+  // Obtener unidades de medida activas
+  async getUnits() {
+    return await db
+      .select({
+        id: units.id,
+        name: units.name,
+        shortName: units.shortName,
+        type: units.type,
+      })
+      .from(units)
+      .where(eq(units.isActive, true))
+      .orderBy(units.name);
   }
 }

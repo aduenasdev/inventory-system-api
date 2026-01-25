@@ -568,12 +568,18 @@ async function main() {
     { name: 'sales.accept', description: 'Aceptar facturas de venta', group_name: 'sales' },
     { name: 'sales.cancel', description: 'Cancelar facturas de venta', group_name: 'sales' },
     { name: 'sales.paid', description: 'Marcar facturas de venta como pagadas/cobradas', group_name: 'sales' },
+    { name: 'sales.backdate', description: 'Crear facturas de venta con fecha retroactiva', group_name: 'sales' },
 
     // Traslados
     { name: 'transfers.read', description: 'Leer traslados', group_name: 'transfers' },
     { name: 'transfers.create', description: 'Crear traslados', group_name: 'transfers' },
     { name: 'transfers.accept', description: 'Aceptar traslados', group_name: 'transfers' },
     { name: 'transfers.reject', description: 'Rechazar traslados', group_name: 'transfers' },
+
+    // Reportes
+    { name: 'reports.stock.read', description: 'Ver stock actual de almacenes', group_name: 'reports' },
+    { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
+    { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
   ];
 
   for (const p of fixedPermissions) {

@@ -6,6 +6,7 @@ export const createPurchaseSchema = z.object({
     supplierPhone: z.string().optional(),
     warehouseId: z.number().int().positive(),
     currencyId: z.number().int().positive(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Fecha de la compra (default: hoy)
     notes: z.string().optional(),
     autoApprove: z.boolean().optional().default(false), // Si true y tiene permiso, crea directo en APPROVED
     details: z.array(

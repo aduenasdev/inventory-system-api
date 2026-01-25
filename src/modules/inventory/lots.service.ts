@@ -15,6 +15,7 @@ export interface CreateLotData {
   originalCurrencyId: number;
   originalUnitCost: number;
   exchangeRate: number;
+  unitCostBase?: number; // Costo ya convertido a CUP (opcional, si no se pasa se calcula)
   sourceType: "PURCHASE" | "TRANSFER" | "ADJUSTMENT" | "MIGRATION";
   sourceId?: number;
   sourceLotId?: number;
@@ -59,8 +60,8 @@ export class LotService {
     const database = tx || db;
     const lotCode = await this.generateLotCode(data.sourceType, data.sourceId, lineNumber);
     
-    // Calcular costo en moneda base (CUP)
-    const unitCostBase = data.originalUnitCost * data.exchangeRate;
+    // Usar costo base ya calculado si viene, o calcularlo
+    const unitCostBase = data.unitCostBase ?? (data.originalUnitCost * data.exchangeRate);
 
     const [result] = (await database.insert(inventoryLots).values({
       lotCode,

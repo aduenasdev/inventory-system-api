@@ -21,6 +21,7 @@ import inventoryRoutes from "./modules/inventory/inventory.routes";
 import purchaseRoutes from "./modules/purchases/purchases.routes";
 import saleRoutes from "./modules/sales/sales.routes";
 import transferRoutes from "./modules/transfers/transfers.routes";
+import reportRoutes from "./modules/reports/reports.routes";
 import { authMiddleware } from "./middlewares/auth.middleware";
 
 const app = express();
@@ -82,6 +83,7 @@ app.use("/inventory", inventoryRoutes);
 app.use("/purchases", purchaseRoutes);
 app.use("/sales", saleRoutes);
 app.use("/transfers", transferRoutes);
+app.use("/reports", reportRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

@@ -7,6 +7,8 @@ export const createSaleSchema = z.object({
     warehouseId: z.number().int().positive(),
     currencyId: z.number().int().positive(),
     paymentTypeId: z.number().int().positive().optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Fecha de la venta (default: hoy)
+    backdateReason: z.string().min(10, "Debe indicar el motivo de la fecha retroactiva (mínimo 10 caracteres)").optional(),
     notes: z.string().optional(),
     autoApprove: z.boolean().optional().default(false), // Si true y tiene permiso, crea directo en APPROVED
     details: z.array(

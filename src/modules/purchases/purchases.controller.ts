@@ -162,3 +162,13 @@ export const getCategories = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// Obtener unidades de medida
+export const getUnits = async (req: Request, res: Response) => {
+  try {
+    const units = await purchasesService.getUnits();
+    res.json(units);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};

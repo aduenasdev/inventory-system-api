@@ -1,0 +1,48 @@
+import { z } from "zod";
+
+// ========== STOCK ACTUAL ==========
+export const getStockReportSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    productId: z.string().transform(Number).optional(), // Filtro por producto específico
+    categoryId: z.string().transform(Number).optional(), // Filtro por categoría
+  }),
+});
+
+// ========== STOCK VALORIZADO ==========
+export const getValorizedStockSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    productId: z.string().transform(Number).optional(), // Filtro por producto específico
+    categoryId: z.string().transform(Number).optional(), // Filtro por categoría
+  }),
+});
+
+// ========== BAJO MÍNIMO ==========
+export const getLowStockSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    minThreshold: z.string().transform(Number).optional(), // Cantidad mínima (default: 10)
+  }),
+});
+
+// ========== MOVIMIENTOS ==========
+export const getMovementsReportSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+    type: z.enum(["INVOICE_ENTRY", "SALE_EXIT", "TRANSFER_ENTRY", "TRANSFER_EXIT", "ADJUSTMENT_ENTRY", "ADJUSTMENT_EXIT"]).optional(), // Tipo de movimiento
+    productId: z.string().transform(Number).optional(), // Filtro por producto
+  }),
+});
+
+// ========== KARDEX ==========
+export const getKardexSchema = z.object({
+  query: z.object({
+    productId: z.string().transform(Number), // Obligatorio
+    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+  }),
+});

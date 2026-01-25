@@ -207,3 +207,43 @@ export const checkExchangeRates = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// Obtener monedas activas
+export const getCurrencies = async (_req: Request, res: Response) => {
+  try {
+    const currencies = await salesService.getCurrencies();
+    res.json(currencies);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener tipos de pago activos
+export const getPaymentTypes = async (_req: Request, res: Response) => {
+  try {
+    const paymentTypes = await salesService.getPaymentTypes();
+    res.json(paymentTypes);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener categorías activas
+export const getCategories = async (_req: Request, res: Response) => {
+  try {
+    const categories = await salesService.getCategories();
+    res.json(categories);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener unidades activas
+export const getUnits = async (_req: Request, res: Response) => {
+  try {
+    const units = await salesService.getUnits();
+    res.json(units);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
