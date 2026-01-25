@@ -240,6 +240,138 @@ export async function createBatchExchangeRates(data: {
   return results;
 }
 
+export async function getExchangeRatesForChart(startDate: string, endDate: string) {
+  // Obtener todas las tasas en el rango, ordenadas por fecha
+  const query = sql`
+    SELECT 
+      er.id,
+      er.to_currency_id as toCurrencyId,
+      c.name as currencyName,
+      c.code as currencyCode,
+      c.symbol as currencySymbol,
+      er.rate,
+      DATE(er.date) as date
+    FROM exchange_rates er
+    INNER JOIN currencies c ON er.to_currency_id = c.id
+    WHERE er.from_currency_id = 1
+      AND DATE(er.date) >= ${startDate}
+      AND DATE(er.date) <= ${endDate}
+    ORDER BY er.date ASC, c.code ASC
+  `;
+
+  const [rows] = await db.execute(query);
+  const rawData = rows as unknown as any[];
+
+  // Obtener lista única de fechas y monedas
+  const datesSet = new Set<string>();
+  const currenciesMap = new Map<number, { code: string; name: string; symbol: string }>();
+
+  rawData.forEach(row => {
+    const dateStr = row.date instanceof Date 
+      ? row.date.toISOString().split('T')[0] 
+      : String(row.date).split('T')[0];
+    datesSet.add(dateStr);
+    if (!currenciesMap.has(row.toCurrencyId)) {
+      currenciesMap.set(row.toCurrencyId, {
+        code: row.currencyCode,
+        name: row.currencyName,
+        symbol: row.currencySymbol
+      });
+    }
+  });
+
+  const dates = Array.from(datesSet).sort();
+  const currencies = Array.from(currenciesMap.entries()).map(([id, data]) => ({
+    id,
+    ...data
+  }));
+
+  // Crear mapa de datos por fecha y moneda para acceso rápido
+  const dataMap = new Map<string, number>();
+  rawData.forEach(row => {
+    const dateStr = row.date instanceof Date 
+      ? row.date.toISOString().split('T')[0] 
+      : String(row.date).split('T')[0];
+    const key = `${dateStr}-${row.toCurrencyId}`;
+    dataMap.set(key, parseFloat(row.rate));
+  });
+
+  // Formato 1: Series para gráficas de líneas (cada moneda es una serie)
+  const series = currencies.map(currency => {
+    const data = dates.map(date => {
+      const key = `${date}-${currency.id}`;
+      return dataMap.get(key) || null;
+    });
+    return {
+      id: currency.id,
+      name: `${currency.code} (${currency.symbol})`,
+      code: currency.code,
+      symbol: currency.symbol,
+      data
+    };
+  });
+
+  // Formato 2: Datos tabulares (cada fila es una fecha con todas las monedas)
+  const tableData = dates.map(date => {
+    const row: any = { date };
+    currencies.forEach(currency => {
+      const key = `${date}-${currency.id}`;
+      row[currency.code] = dataMap.get(key) || null;
+    });
+    return row;
+  });
+
+  // Estadísticas por moneda
+  const stats = currencies.map(currency => {
+    const values = dates
+      .map(date => dataMap.get(`${date}-${currency.id}`))
+      .filter((v): v is number => v !== null && v !== undefined);
+    
+    if (values.length === 0) {
+      return {
+        currencyId: currency.id,
+        currencyCode: currency.code,
+        min: null,
+        max: null,
+        avg: null,
+        first: null,
+        last: null,
+        change: null,
+        changePercent: null
+      };
+    }
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const first = values[0];
+    const last = values[values.length - 1];
+    const change = last - first;
+    const changePercent = first !== 0 ? (change / first) * 100 : 0;
+
+    return {
+      currencyId: currency.id,
+      currencyCode: currency.code,
+      min: min.toFixed(2),
+      max: max.toFixed(2),
+      avg: avg.toFixed(2),
+      first: first.toFixed(2),
+      last: last.toFixed(2),
+      change: change.toFixed(2),
+      changePercent: changePercent.toFixed(2)
+    };
+  });
+
+  return {
+    range: { startDate, endDate },
+    labels: dates,           // Eje X de la gráfica
+    currencies,              // Lista de monedas incluidas
+    series,                  // Para gráficas de líneas
+    tableData,               // Para tablas
+    stats                    // Estadísticas resumen
+  };
+}
+
 export async function getCurrentExchangeRates() {
   // Obtener la tasa más reciente de CUP a cada moneda activa
   const query = sql`

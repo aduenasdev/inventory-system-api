@@ -36,3 +36,10 @@ export const createBatchExchangeRatesSchema = z.object({
     ).min(1, { message: "Debe proporcionar al menos una tasa" }),
   }),
 });
+
+export const getExchangeRatesChartSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Fecha inicio inválida, use formato YYYY-MM-DD" }),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Fecha fin inválida, use formato YYYY-MM-DD" }),
+  }),
+});

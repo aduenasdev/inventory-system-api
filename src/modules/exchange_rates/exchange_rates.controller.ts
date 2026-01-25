@@ -7,6 +7,7 @@ import {
   updateExchangeRate,
   createBatchExchangeRates,
   getCurrentExchangeRates,
+  getExchangeRatesForChart,
 } from "./exchange_rates.service";
 
 export async function createExchangeRateHandler(req: Request, res: Response) {
@@ -79,5 +80,15 @@ export async function getCurrentExchangeRatesHandler(req: Request, res: Response
     res.status(200).json(rates);
   } catch (error: any) {
     res.status(500).json({ message: "Error al obtener tasas vigentes" });
+  }
+}
+
+export async function getExchangeRatesChartHandler(req: Request, res: Response) {
+  try {
+    const { startDate, endDate } = req.query;
+    const chartData = await getExchangeRatesForChart(startDate as string, endDate as string);
+    res.status(200).json(chartData);
+  } catch (error: any) {
+    res.status(500).json({ message: "Error al obtener datos para gráfica" });
   }
 }
