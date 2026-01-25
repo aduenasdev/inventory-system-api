@@ -171,7 +171,7 @@ export class SalesService {
         .from(products)
         .where(eq(products.id, productId));
       throw new ValidationError(
-        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(4)}, Solicitado: ${quantity}`
+        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(2)}, Solicitado: ${quantity}`
       );
     }
   }
@@ -203,6 +203,22 @@ export class SalesService {
     
     // Usar fecha actual del servidor
     const todayDate = getTodayDateString();
+
+    // Validar que hay al menos un detalle
+    if (!data.details || data.details.length === 0) {
+      throw new ValidationError("La factura debe tener al menos un producto");
+    }
+
+    // Validar cantidades y precios
+    for (let i = 0; i < data.details.length; i++) {
+      const detail = data.details[i];
+      if (detail.quantity <= 0) {
+        throw new ValidationError(`La cantidad del producto en línea ${i + 1} debe ser mayor a 0`);
+      }
+      if (detail.unitPrice < 0) {
+        throw new ValidationError(`El precio unitario del producto en línea ${i + 1} no puede ser negativo`);
+      }
+    }
     
     // Validar paymentTypeId de la factura si se proporciona
     if (data.paymentTypeId) {
@@ -368,7 +384,7 @@ export class SalesService {
             productId: detail.productId,
             quantity: detail.quantity,
             reference: invoiceNumber,
-            reason: `Salida por venta ${invoiceNumber}. Costo real: ${realCost.toFixed(4)}, Margen: ${margin.toFixed(4)}`,
+            reason: `Salida por venta ${invoiceNumber}. Costo real: ${realCost.toFixed(2)}, Margen: ${margin.toFixed(2)}`,
           });
         }
       }
@@ -422,7 +438,7 @@ export class SalesService {
         productId: detail.productId,
         quantity: detail.quantity,
         reference: sale.invoiceNumber,
-        reason: `Salida por venta ${sale.invoiceNumber}. Costo real: ${realCost.toFixed(4)}, Margen: ${margin.toFixed(4)}`,
+        reason: `Salida por venta ${sale.invoiceNumber}. Costo real: ${realCost.toFixed(2)}, Margen: ${margin.toFixed(2)}`,
       });
     }
   }
@@ -842,9 +858,9 @@ export class SalesService {
 
         return {
           ...sale,
-          totalRevenue: totalRevenue.toFixed(4),
-          totalCost: totalCost.toFixed(4),
-          totalMargin: totalMargin.toFixed(4),
+          totalRevenue: totalRevenue.toFixed(2),
+          totalCost: totalCost.toFixed(2),
+          totalMargin: totalMargin.toFixed(2),
           marginPercent: marginPercent.toFixed(2) + "%",
         };
       })
@@ -860,9 +876,9 @@ export class SalesService {
       sales: salesWithTotals,
       summary: {
         totalSales: salesWithTotals.length,
-        totalRevenue: overallRevenue.toFixed(4),
-        totalCost: overallCost.toFixed(4),
-        totalMargin: overallMargin.toFixed(4),
+        totalRevenue: overallRevenue.toFixed(2),
+        totalCost: overallCost.toFixed(2),
+        totalMargin: overallMargin.toFixed(2),
         marginPercent: overallMarginPercent.toFixed(2) + "%",
       },
     };
@@ -962,7 +978,7 @@ export class SalesService {
       sales: dailySales,
       summary: {
         totalSales,
-        totalRevenue: totalRevenue.toFixed(4),
+        totalRevenue: totalRevenue.toFixed(2),
         paidSales,
         unpaidSales,
       },
@@ -990,7 +1006,7 @@ export class SalesService {
         endDate,
         targetCurrency: null,
         sales: [],
-        summary: { totalSales: 0, totalRevenue: "0.0000", paidSales: 0, unpaidSales: 0 },
+        summary: { totalSales: 0, totalRevenue: "0.00", paidSales: 0, unpaidSales: 0 },
       };
     }
 
@@ -1045,7 +1061,7 @@ export class SalesService {
         
         return {
           ...sale,
-          convertedTotal: convertedTotal.toFixed(4),
+          convertedTotal: convertedTotal.toFixed(2),
         };
       })
     );
@@ -1060,7 +1076,7 @@ export class SalesService {
       sales: salesWithConversion,
       summary: {
         totalSales: periodSales.length,
-        totalRevenue: totalRevenueConverted.toFixed(4),
+        totalRevenue: totalRevenueConverted.toFixed(2),
         paidSales,
         unpaidSales,
       },
@@ -1173,7 +1189,7 @@ export class SalesService {
       const stockInfo = lotsWithStock.find(l => l.productId === product.id);
       return {
         ...product,
-        availableStock: stockInfo ? parseFloat(stockInfo.totalStock).toFixed(4) : "0.0000",
+        availableStock: stockInfo ? parseFloat(stockInfo.totalStock).toFixed(2) : "0.00",
       };
     });
 

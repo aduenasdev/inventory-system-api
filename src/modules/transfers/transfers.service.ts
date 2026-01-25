@@ -22,7 +22,7 @@ export class TransfersService {
         .from(products)
         .where(eq(products.id, productId));
       throw new ValidationError(
-        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(4)}, Solicitado: ${quantity}`
+        `Stock insuficiente para el producto "${product.name}". Disponible: ${availableStock.toFixed(2)}, Solicitado: ${quantity}`
       );
     }
   }
@@ -53,6 +53,19 @@ export class TransfersService {
   }) {
     if (data.originWarehouseId === data.destinationWarehouseId) {
       throw new ValidationError("El almacén de origen y destino no pueden ser el mismo");
+    }
+
+    // Validar que hay al menos un detalle
+    if (!data.details || data.details.length === 0) {
+      throw new ValidationError("El traslado debe tener al menos un producto");
+    }
+
+    // Validar cantidades
+    for (let i = 0; i < data.details.length; i++) {
+      const detail = data.details[i];
+      if (detail.quantity <= 0) {
+        throw new ValidationError(`La cantidad del producto en línea ${i + 1} debe ser mayor a 0`);
+      }
     }
 
     // Validaciones previas (fuera de transacción para fallar rápido)

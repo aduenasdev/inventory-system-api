@@ -30,14 +30,14 @@ export const lotConsumptions = mysqlTable(
     referenceId: int("reference_id"), // Puede ser null para ajustes
 
     // Cantidad consumida de este lote
-    quantity: decimal("quantity", { precision: 18, scale: 4 }).notNull(),
+    quantity: decimal("quantity", { precision: 18, scale: 2 }).notNull(),
 
     // Costo unitario al momento del consumo (para trazabilidad)
     unitCostAtConsumption: decimal("unit_cost_at_consumption", {
       precision: 18,
-      scale: 4,
+      scale: 2,
     }).notNull(),
-    totalCost: decimal("total_cost", { precision: 18, scale: 4 }).notNull(),
+    totalCost: decimal("total_cost", { precision: 18, scale: 2 }).notNull(),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

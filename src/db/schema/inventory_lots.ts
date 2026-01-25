@@ -26,18 +26,18 @@ export const inventoryLots = mysqlTable(
       .references(() => warehouses.id),
 
     // Cantidades
-    initialQuantity: decimal("initial_quantity", { precision: 18, scale: 4 }).notNull(),
-    currentQuantity: decimal("current_quantity", { precision: 18, scale: 4 }).notNull(),
+    initialQuantity: decimal("initial_quantity", { precision: 18, scale: 2 }).notNull(),
+    currentQuantity: decimal("current_quantity", { precision: 18, scale: 2 }).notNull(),
 
     // Costos (siempre en moneda base CUP)
-    unitCostBase: decimal("unit_cost_base", { precision: 18, scale: 4 }).notNull(),
+    unitCostBase: decimal("unit_cost_base", { precision: 18, scale: 2 }).notNull(),
 
     // Información original de la compra
     originalCurrencyId: int("original_currency_id")
       .notNull()
       .references(() => currencies.id),
-    originalUnitCost: decimal("original_unit_cost", { precision: 18, scale: 4 }).notNull(),
-    exchangeRate: decimal("exchange_rate", { precision: 18, scale: 4 }).notNull(),
+    originalUnitCost: decimal("original_unit_cost", { precision: 18, scale: 2 }).notNull(),
+    exchangeRate: decimal("exchange_rate", { precision: 18, scale: 2 }).notNull(),
 
     // Origen del lote
     sourceType: mysqlEnum("source_type", [

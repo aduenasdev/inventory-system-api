@@ -154,10 +154,25 @@ export class PurchasesService {
     // Obtener tasa de cambio de la moneda de la factura a CUP
     const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, normalizedDate);
 
+    // Validar que hay al menos un detalle
+    if (!data.details || data.details.length === 0) {
+      throw new ValidationError("La factura debe tener al menos un producto");
+    }
+
     // Validar productos y preparar detalles (fuera de transacción)
     let subtotal = 0;
     const detailsProcessed = await Promise.all(
       data.details.map(async (detail, index) => {
+        // Validar cantidad mayor a 0
+        if (detail.quantity <= 0) {
+          throw new ValidationError(`La cantidad del producto en línea ${index + 1} debe ser mayor a 0`);
+        }
+
+        // Validar costo mayor o igual a 0
+        if (detail.unitCost < 0) {
+          throw new ValidationError(`El costo unitario del producto en línea ${index + 1} no puede ser negativo`);
+        }
+
         // Obtener producto para validar
         const [product] = await db
           .select()

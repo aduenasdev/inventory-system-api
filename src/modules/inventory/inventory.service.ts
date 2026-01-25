@@ -20,7 +20,7 @@ export class InventoryService {
     return {
       warehouseId,
       productId,
-      currentQuantity: stockFromLots.toFixed(4),
+      currentQuantity: stockFromLots.toFixed(2),
     };
   }
 
@@ -93,6 +93,11 @@ export class InventoryService {
     unitCost?: number; // Solo para entradas
     exchangeRate?: number; // Solo para entradas
   }) {
+    // Validar cantidad mayor a 0
+    if (data.quantity <= 0) {
+      throw new ValidationError("La cantidad debe ser mayor a 0");
+    }
+
     const reference = `ADJ-${Date.now()}`;
 
     if (data.type === "ADJUSTMENT_ENTRY") {
@@ -160,7 +165,7 @@ export class InventoryService {
 
       if (availableStock < data.quantity) {
         throw new ValidationError(
-          `Stock insuficiente. Disponible: ${availableStock.toFixed(4)}, Solicitado: ${data.quantity}`
+          `Stock insuficiente. Disponible: ${availableStock.toFixed(2)}, Solicitado: ${data.quantity}`
         );
       }
 
@@ -246,7 +251,7 @@ export class InventoryService {
     if (allowedWarehouseIds.length === 0) {
       return {
         byWarehouse: [],
-        overall: { byCurrency: [], totalProducts: 0, totalCostCUP: "0.0000" },
+        overall: { byCurrency: [], totalProducts: 0, totalCostCUP: "0.00" },
       };
     }
 
@@ -310,7 +315,7 @@ export class InventoryService {
         originalCurrency: lot.currencyCode,
         originalUnitCost: lot.originalUnitCost,
         unitCostCUP: lot.unitCostBase,
-        totalCostCUP: totalCostCUP.toFixed(4),
+        totalCostCUP: totalCostCUP.toFixed(2),
         entryDate: lot.entryDate,
       });
 
@@ -342,9 +347,9 @@ export class InventoryService {
         productId: p.productId,
         productName: p.productName,
         productCode: p.productCode,
-        totalQuantity: p.totalQuantity.toFixed(4),
-        totalCostCUP: p.totalCostCUP.toFixed(4),
-        averageCostCUP: (p.totalCostCUP / p.totalQuantity).toFixed(4),
+        totalQuantity: p.totalQuantity.toFixed(2),
+        totalCostCUP: p.totalCostCUP.toFixed(2),
+        averageCostCUP: (p.totalCostCUP / p.totalQuantity).toFixed(2),
         lotCount: p.lotCount,
       }));
 
@@ -353,7 +358,7 @@ export class InventoryService {
         warehouseName: warehouse.warehouseName,
         productCount: warehouse.products.size,
         lotCount: warehouse.lots.length,
-        totalCostCUP: warehouse.totalCostCUP.toFixed(4),
+        totalCostCUP: warehouse.totalCostCUP.toFixed(2),
         products: productsArray,
         lots: warehouse.lots,
       });
@@ -366,7 +371,7 @@ export class InventoryService {
       byWarehouse,
       overall: {
         totalProducts: overallTotalProducts,
-        totalCostCUP: overallTotalCostCUP.toFixed(4),
+        totalCostCUP: overallTotalCostCUP.toFixed(2),
         baseCurrency: "CUP",
       },
     };

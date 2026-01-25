@@ -135,7 +135,7 @@ export class LotService {
         .where(eq(products.id, productId));
       throw new ValidationError(
         `Stock insuficiente para "${product?.name || productId}". ` +
-        `Disponible: ${totalAvailable.toFixed(4)}, Solicitado: ${quantity}`
+        `Disponible: ${totalAvailable.toFixed(2)}, Solicitado: ${quantity}`
       );
     }
 
