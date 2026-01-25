@@ -561,6 +561,7 @@ async function main() {
     { name: 'purchases.create', description: 'Crear facturas de compra', group_name: 'purchases' },
     { name: 'purchases.accept', description: 'Aceptar facturas de compra', group_name: 'purchases' },
     { name: 'purchases.cancel', description: 'Cancelar facturas de compra', group_name: 'purchases' },
+    { name: 'purchases.backdate', description: 'Consultar tasas de cambio de fechas anteriores para compras retroactivas', group_name: 'purchases' },
 
     // Ventas
     { name: 'sales.read', description: 'Leer facturas de venta', group_name: 'sales' },

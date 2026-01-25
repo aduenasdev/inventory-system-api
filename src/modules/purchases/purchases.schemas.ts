@@ -71,5 +71,6 @@ export const getProductsSchema = z.object({
 export const checkExchangeRatesSchema = z.object({
   query: z.object({
     currencyId: z.string().transform(Number),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido, use YYYY-MM-DD").optional(),
   }),
 });
