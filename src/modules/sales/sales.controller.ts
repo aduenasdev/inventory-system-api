@@ -7,18 +7,13 @@ export const createSale = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
     const userPermissions: string[] = (res.locals.user as any).permissions || [];
-    const sale = await salesService.createSale({
+    const result = await salesService.createSale({
       ...req.body,
       userId,
       userPermissions,
     });
 
-    res.status(201).json({
-      message: sale.status === "APPROVED" 
-        ? "Factura de venta creada y aprobada exitosamente. Lotes consumidos."
-        : "Factura de venta creada exitosamente",
-      data: sale,
-    });
+    res.status(201).json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -58,7 +53,11 @@ export const getAllSales = async (req: Request, res: Response) => {
 export const getSaleById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const sale = await salesService.getSaleById(Number(id));
+    const saleId = Number(id);
+    if (isNaN(saleId) || saleId <= 0) {
+      return res.status(400).json({ error: "ID de venta inválido" });
+    }
+    const sale = await salesService.getSaleById(saleId);
     res.json(sale);
   } catch (error: any) {
     res.status(404).json({ error: error.message });
@@ -68,8 +67,12 @@ export const getSaleById = async (req: Request, res: Response) => {
 export const acceptSale = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const saleId = Number(id);
+    if (isNaN(saleId) || saleId <= 0) {
+      return res.status(400).json({ error: "ID de venta inválido" });
+    }
     const userId = (res.locals.user as any).id;
-    const result = await salesService.acceptSale(Number(id), userId);
+    const result = await salesService.acceptSale(saleId, userId);
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -79,10 +82,14 @@ export const acceptSale = async (req: Request, res: Response) => {
 export const cancelSale = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const saleId = Number(id);
+    if (isNaN(saleId) || saleId <= 0) {
+      return res.status(400).json({ error: "ID de venta inválido" });
+    }
     const { cancellationReason } = req.body;
     const userId = (res.locals.user as any).id;
     const result = await salesService.cancelSale(
-      Number(id),
+      saleId,
       cancellationReason,
       userId
     );
@@ -95,8 +102,12 @@ export const cancelSale = async (req: Request, res: Response) => {
 export const markSaleAsPaid = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const saleId = Number(id);
+    if (isNaN(saleId) || saleId <= 0) {
+      return res.status(400).json({ error: "ID de venta inválido" });
+    }
     const userId = (res.locals.user as any).id;
-    const result = await salesService.markSaleAsPaid(Number(id), userId);
+    const result = await salesService.markSaleAsPaid(saleId, userId);
     res.json(result);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
