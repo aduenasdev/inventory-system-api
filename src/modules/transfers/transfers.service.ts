@@ -331,7 +331,6 @@ export class TransfersService {
   // ========== OBTENER TODOS LOS TRASLADOS ==========
   async getAllTransfers(
     userId: number,
-    userPermissions: string[],
     startDate: string,
     endDate?: string,
     warehouseId?: number,
@@ -346,17 +345,12 @@ export class TransfersService {
     const conditions: any[] = [
       gte(transfers.date, sql`${startDate}`),
       lte(transfers.date, sql`${endDate || startDate}`),
+      // Siempre filtrar por almacenes del usuario (origen o destino)
+      or(
+        inArray(transfers.originWarehouseId, userWarehouseIds),
+        inArray(transfers.destinationWarehouseId, userWarehouseIds)
+      ),
     ];
-
-    // Filtrar por almacenes del usuario (origen o destino)
-    if (!userPermissions.includes("transfers.readAll")) {
-      conditions.push(
-        or(
-          inArray(transfers.originWarehouseId, userWarehouseIds),
-          inArray(transfers.destinationWarehouseId, userWarehouseIds)
-        )
-      );
-    }
 
     if (warehouseId) {
       conditions.push(

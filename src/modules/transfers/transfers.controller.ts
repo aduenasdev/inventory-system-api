@@ -70,11 +70,9 @@ export const createTransfer = async (req: Request, res: Response) => {
 export const getAllTransfers = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const userPermissions = (req as any).user.permissions || [];
     const { startDate, endDate, warehouseId, status } = req.query;
     const transfers = await transfersService.getAllTransfers(
       userId,
-      userPermissions,
       startDate as string,
       endDate as string | undefined,
       warehouseId ? parseInt(warehouseId as string) : undefined,
