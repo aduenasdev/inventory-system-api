@@ -299,7 +299,7 @@ export class TransfersService {
       // Crear traslado
       const [transfer] = (await tx.insert(transfers).values({
         transferNumber,
-        date: new Date(transferDate),
+        date: sql`${transferDate}`,
         originWarehouseId: data.originWarehouseId,
         destinationWarehouseId: data.destinationWarehouseId,
         status: "PENDING",
