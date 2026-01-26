@@ -267,3 +267,66 @@ export const getUnits = async (_req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// ========== REPORTE AVANZADO DE VENTAS ==========
+// Retorna ventas filtradas + opciones de filtro para el frontend
+export const getSalesReport = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const userPermissions: string[] = (res.locals.user as any).permissions || [];
+    
+    const {
+      startDate,
+      endDate,
+      warehouseId,
+      productId,
+      categoryId,
+      currencyId,
+      paymentTypeId,
+      status,
+      isPaid,
+      createdById,
+      customerId,
+      invoiceNumber,
+      page,
+      limit,
+    } = req.query as {
+      startDate: string;
+      endDate: string;
+      warehouseId?: string;
+      productId?: string;
+      categoryId?: string;
+      currencyId?: string;
+      paymentTypeId?: string;
+      status?: 'PENDING' | 'APPROVED' | 'CANCELLED';
+      isPaid?: string;
+      createdById?: string;
+      customerId?: string;
+      invoiceNumber?: string;
+      page?: string;
+      limit?: string;
+    };
+
+    const result = await salesService.getSalesReport(userId, userPermissions, {
+      startDate,
+      endDate,
+      warehouseId: warehouseId ? Number(warehouseId) : undefined,
+      productId: productId ? Number(productId) : undefined,
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      currencyId: currencyId ? Number(currencyId) : undefined,
+      paymentTypeId: paymentTypeId ? Number(paymentTypeId) : undefined,
+      status,
+      isPaid: isPaid !== undefined ? isPaid === 'true' : undefined,
+      createdById: createdById ? Number(createdById) : undefined,
+      customerId,
+      invoiceNumber,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    const status = error.name === 'ForbiddenError' ? 403 : 400;
+    res.status(status).json({ error: error.message });
+  }
+};

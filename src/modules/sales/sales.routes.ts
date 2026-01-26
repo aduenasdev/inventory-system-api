@@ -21,6 +21,7 @@ import {
   getPaymentTypes,
   getCategories,
   getUnits,
+  getSalesReport,
 } from "./sales.controller";
 import {
   createSaleSchema,
@@ -35,6 +36,7 @@ import {
   getSalesMarginReportSchema,
   getAvailableProductsSchema,
   checkExchangeRatesSchema,
+  getSalesReportSchema,
 } from "./sales.schemas";
 
 const router = Router();
@@ -136,6 +138,17 @@ router.get(
   hasPermission("sales.read"),
   validate(getCancelledSalesReportSchema),
   getCancelledSalesReport
+);
+
+// GET /sales/reports/advanced - Reporte avanzado de ventas con filtros
+// Retorna: ventas filtradas + opciones de filtro para el frontend
+// Filtros: warehouseId, productId, categoryId, currencyId, paymentTypeId,
+//          status, isPaid, createdById, customerId, invoiceNumber
+router.get(
+  "/reports/advanced",
+  authMiddleware,
+  validate(getSalesReportSchema),
+  getSalesReport
 );
 
 // GET /sales/reports/totals - Reporte de totales de ventas por período

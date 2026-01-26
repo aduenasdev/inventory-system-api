@@ -1614,4 +1614,488 @@ export class SalesService {
       .where(eq(units.isActive, true))
       .orderBy(units.name);
   }
+
+  // ========== REPORTE AVANZADO DE VENTAS ==========
+  // Endpoint que retorna ventas filtradas + opciones de filtro para el frontend
+  async getSalesReport(
+    userId: number,
+    userPermissions: string[],
+    filters: {
+      startDate: string;
+      endDate: string;
+      warehouseId?: number;
+      productId?: number;
+      categoryId?: number;
+      currencyId?: number;
+      paymentTypeId?: number;
+      status?: 'PENDING' | 'APPROVED' | 'CANCELLED';
+      isPaid?: boolean;
+      createdById?: number;
+      customerId?: string; // Buscar por nombre de cliente
+      invoiceNumber?: string; // Buscar por número de factura
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    const page = Math.max(1, filters.page || 1);
+    const limit = Math.min(Math.max(1, filters.limit || 20), 100);
+    
+    // Obtener almacenes del usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
+
+    if (allowedWarehouseIds.length === 0) {
+      return this.buildEmptyReportResponse();
+    }
+
+    // Construir condiciones de filtro
+    const conditions: any[] = [
+      gte(sales.date, sql`${filters.startDate}`),
+      lte(sales.date, sql`${filters.endDate}`),
+    ];
+
+    // Filtro por almacén (validar que tenga acceso)
+    if (filters.warehouseId) {
+      if (!allowedWarehouseIds.includes(filters.warehouseId)) {
+        throw new ForbiddenError("No tienes acceso a este almacén");
+      }
+      conditions.push(eq(sales.warehouseId, filters.warehouseId));
+    } else {
+      conditions.push(inArray(sales.warehouseId, allowedWarehouseIds));
+    }
+
+    // Filtro por moneda
+    if (filters.currencyId) {
+      conditions.push(eq(sales.currencyId, filters.currencyId));
+    }
+
+    // Filtro por tipo de pago (a nivel de factura)
+    if (filters.paymentTypeId) {
+      conditions.push(eq(sales.paymentTypeId, filters.paymentTypeId));
+    }
+
+    // Filtro por estado
+    if (filters.status) {
+      conditions.push(eq(sales.status, filters.status));
+    }
+
+    // Filtro por estado de pago
+    if (filters.isPaid !== undefined) {
+      conditions.push(eq(sales.isPaid, filters.isPaid));
+    }
+
+    // Filtro por usuario que creó
+    if (filters.createdById) {
+      conditions.push(eq(sales.createdBy, filters.createdById));
+    }
+
+    // Filtro por nombre de cliente (búsqueda parcial)
+    if (filters.customerId) {
+      conditions.push(like(sales.customerName, `%${filters.customerId}%`));
+    }
+
+    // Filtro por número de factura (búsqueda parcial)
+    if (filters.invoiceNumber) {
+      conditions.push(like(sales.invoiceNumber, `%${filters.invoiceNumber}%`));
+    }
+
+    // Filtros de permisos (quién puede ver qué)
+    const hasReadAll = userPermissions.includes("sales.read");
+    const hasCancel = userPermissions.includes("sales.cancel");
+    const hasAccept = userPermissions.includes("sales.accept");
+    const hasCreate = userPermissions.includes("sales.create");
+
+    if (!hasReadAll) {
+      const permissionConditions: any[] = [];
+      
+      if (hasCancel) {
+        permissionConditions.push(
+          or(eq(sales.status, "PENDING"), eq(sales.status, "APPROVED"))
+        );
+      }
+      
+      if (hasAccept && !hasCancel) {
+        permissionConditions.push(eq(sales.status, "PENDING"));
+      }
+      
+      if (hasCreate) {
+        permissionConditions.push(eq(sales.createdBy, userId));
+      }
+
+      if (permissionConditions.length > 0) {
+        conditions.push(or(...permissionConditions));
+      } else {
+        return this.buildEmptyReportResponse();
+      }
+    }
+
+    // Si hay filtro por producto o categoría, necesitamos hacer subquery
+    let saleIdsWithProductFilter: number[] | null = null;
+    
+    if (filters.productId || filters.categoryId) {
+      // Buscar ventas que contengan el producto o productos de la categoría
+      let productConditions: any[] = [];
+      
+      if (filters.productId) {
+        productConditions.push(eq(salesDetail.productId, filters.productId));
+      }
+      
+      if (filters.categoryId) {
+        // Obtener productos de la categoría
+        const categoryProducts = await db
+          .select({ id: products.id })
+          .from(products)
+          .where(eq(products.categoryId, filters.categoryId));
+        
+        if (categoryProducts.length === 0) {
+          return this.buildEmptyReportResponse();
+        }
+        
+        productConditions.push(
+          inArray(salesDetail.productId, categoryProducts.map(p => p.id))
+        );
+      }
+
+      const salesWithProduct = await db
+        .select({ saleId: salesDetail.saleId })
+        .from(salesDetail)
+        .where(and(...productConditions))
+        .groupBy(salesDetail.saleId);
+      
+      saleIdsWithProductFilter = salesWithProduct.map(s => s.saleId);
+      
+      if (saleIdsWithProductFilter.length === 0) {
+        return this.buildEmptyReportResponse();
+      }
+      
+      conditions.push(inArray(sales.id, saleIdsWithProductFilter));
+    }
+
+    const whereCondition = and(...conditions);
+
+    // Contar total de registros
+    const [countResult] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(sales)
+      .where(whereCondition);
+    
+    const totalRecords = Number(countResult?.count || 0);
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    // Obtener ventas paginadas
+    const salesData = await db
+      .select({
+        id: sales.id,
+        invoiceNumber: sales.invoiceNumber,
+        customerName: sales.customerName,
+        customerPhone: sales.customerPhone,
+        date: sales.date,
+        warehouseId: sales.warehouseId,
+        warehouseName: warehouses.name,
+        currencyId: sales.currencyId,
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+        paymentTypeId: sales.paymentTypeId,
+        paymentTypeName: paymentTypes.type,
+        status: sales.status,
+        subtotal: sales.subtotal,
+        total: sales.total,
+        isPaid: sales.isPaid,
+        createdBy: sales.createdBy,
+        createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+        createdAt: sales.createdAt,
+        acceptedAt: sales.acceptedAt,
+        cancelledAt: sales.cancelledAt,
+      })
+      .from(sales)
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
+      .innerJoin(createdByUser, eq(sales.createdBy, createdByUser.id))
+      .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
+      .where(whereCondition)
+      .orderBy(desc(sales.date), desc(sales.id))
+      .limit(limit)
+      .offset((page - 1) * limit);
+
+    // Calcular totales del reporte (convertidos a CUP)
+    const reportTotals = await this.calculateReportTotals(whereCondition, filters.startDate);
+
+    // Obtener opciones de filtro (pasamos permisos para filtrar opciones según acceso)
+    const filterOptions = await this.getReportFilterOptions(userId, allowedWarehouseIds, userPermissions);
+
+    return {
+      // Datos de ventas
+      sales: salesData,
+      
+      // Paginación
+      pagination: {
+        page,
+        limit,
+        totalRecords,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+      
+      // Resumen del reporte (en CUP para comparabilidad)
+      summary: reportTotals,
+      
+      // Opciones de filtro para el frontend
+      filterOptions,
+      
+      // Filtros aplicados (para referencia)
+      appliedFilters: {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        warehouseId: filters.warehouseId || null,
+        productId: filters.productId || null,
+        categoryId: filters.categoryId || null,
+        currencyId: filters.currencyId || null,
+        paymentTypeId: filters.paymentTypeId || null,
+        status: filters.status || null,
+        isPaid: filters.isPaid ?? null,
+        createdById: filters.createdById || null,
+        customerId: filters.customerId || null,
+        invoiceNumber: filters.invoiceNumber || null,
+      },
+    };
+  }
+
+  // Calcular totales del reporte
+  private async calculateReportTotals(whereCondition: any, referenceDate: string) {
+    // Obtener todas las ventas que coinciden con el filtro
+    const matchingSales = await db
+      .select({
+        id: sales.id,
+        currencyId: sales.currencyId,
+        total: sales.total,
+        status: sales.status,
+        isPaid: sales.isPaid,
+        date: sales.date,
+      })
+      .from(sales)
+      .where(whereCondition);
+
+    let totalApprovedCUP = 0;
+    let totalPendingCUP = 0;
+    let totalCancelledCUP = 0;
+    let totalPaidCUP = 0;
+    let totalUnpaidCUP = 0;
+    
+    let countApproved = 0;
+    let countPending = 0;
+    let countCancelled = 0;
+    let countPaid = 0;
+    let countUnpaid = 0;
+
+    for (const sale of matchingSales) {
+      let totalInCUP = parseFloat(sale.total);
+      
+      // Convertir a CUP si es necesario
+      if (sale.currencyId !== BASE_CURRENCY_ID) {
+        try {
+          const saleDate = normalizeBusinessDate(sale.date);
+          const rate = await this.getExchangeRate(sale.currencyId, BASE_CURRENCY_ID, saleDate);
+          if (rate) {
+            totalInCUP = parseFloat(sale.total) * rate;
+          }
+        } catch {
+          // Si no hay tasa, usar el valor sin convertir (no ideal)
+        }
+      }
+
+      // Sumar por estado
+      switch (sale.status) {
+        case "APPROVED":
+          totalApprovedCUP += totalInCUP;
+          countApproved++;
+          if (sale.isPaid) {
+            totalPaidCUP += totalInCUP;
+            countPaid++;
+          } else {
+            totalUnpaidCUP += totalInCUP;
+            countUnpaid++;
+          }
+          break;
+        case "PENDING":
+          totalPendingCUP += totalInCUP;
+          countPending++;
+          break;
+        case "CANCELLED":
+          totalCancelledCUP += totalInCUP;
+          countCancelled++;
+          break;
+      }
+    }
+
+    return {
+      currency: "CUP",
+      totalSales: matchingSales.length,
+      
+      approved: {
+        count: countApproved,
+        totalCUP: totalApprovedCUP.toFixed(2),
+      },
+      pending: {
+        count: countPending,
+        totalCUP: totalPendingCUP.toFixed(2),
+      },
+      cancelled: {
+        count: countCancelled,
+        totalCUP: totalCancelledCUP.toFixed(2),
+      },
+      paid: {
+        count: countPaid,
+        totalCUP: totalPaidCUP.toFixed(2),
+      },
+      unpaid: {
+        count: countUnpaid,
+        totalCUP: totalUnpaidCUP.toFixed(2),
+      },
+    };
+  }
+
+  // Obtener opciones de filtro para el frontend
+  private async getReportFilterOptions(userId: number, allowedWarehouseIds: number[], userPermissions: string[]) {
+    const hasPaidPermission = userPermissions.includes("sales.paid");
+    
+    // Almacenes del usuario
+    const warehouseOptions = await db
+      .select({
+        id: warehouses.id,
+        name: warehouses.name,
+      })
+      .from(warehouses)
+      .where(
+        and(
+          inArray(warehouses.id, allowedWarehouseIds),
+          eq(warehouses.active, true)
+        )
+      )
+      .orderBy(warehouses.name);
+
+    // Categorías activas
+    const categoryOptions = await db
+      .select({
+        id: categories.id,
+        name: categories.name,
+      })
+      .from(categories)
+      .where(eq(categories.isActive, true))
+      .orderBy(categories.name);
+
+    // Monedas activas
+    const currencyOptions = await db
+      .select({
+        id: currencies.id,
+        name: currencies.name,
+        code: currencies.code,
+        symbol: currencies.symbol,
+      })
+      .from(currencies)
+      .where(eq(currencies.isActive, true))
+      .orderBy(currencies.name);
+
+    // Tipos de pago activos
+    const paymentTypeOptions = await db
+      .select({
+        id: paymentTypes.id,
+        name: paymentTypes.type,
+      })
+      .from(paymentTypes)
+      .where(eq(paymentTypes.isActive, true))
+      .orderBy(paymentTypes.type);
+
+    // Estados posibles
+    const statusOptions = [
+      { id: "PENDING", name: "Pendiente" },
+      { id: "APPROVED", name: "Aprobada" },
+      { id: "CANCELLED", name: "Cancelada" },
+    ];
+
+    // Estados de pago (solo si tiene permiso sales.paid)
+    const isPaidOptions = hasPaidPermission ? [
+      { id: "true", name: "Pagada" },
+      { id: "false", name: "No pagada" },
+    ] : [];
+
+    // Usuarios que han creado ventas en los almacenes del usuario
+    const creatorOptions = await db
+      .select({
+        id: users.id,
+        name: sql<string>`CONCAT(${users.nombre}, ' ', COALESCE(${users.apellido}, ''))`.as('name'),
+      })
+      .from(users)
+      .innerJoin(sales, eq(sales.createdBy, users.id))
+      .where(inArray(sales.warehouseId, allowedWarehouseIds))
+      .groupBy(users.id, users.nombre, users.apellido)
+      .orderBy(users.nombre);
+
+    // Productos que se han vendido (para mostrar solo relevantes)
+    const productOptions = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        code: products.code,
+        categoryId: products.categoryId,
+        categoryName: categories.name,
+      })
+      .from(products)
+      .innerJoin(salesDetail, eq(salesDetail.productId, products.id))
+      .innerJoin(sales, eq(sales.id, salesDetail.saleId))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(inArray(sales.warehouseId, allowedWarehouseIds))
+      .groupBy(products.id, products.name, products.code, products.categoryId, categories.name)
+      .orderBy(products.name);
+
+    return {
+      warehouses: warehouseOptions,
+      categories: categoryOptions,
+      currencies: currencyOptions,
+      paymentTypes: paymentTypeOptions,
+      statuses: statusOptions,
+      // Solo incluir isPaidOptions si tiene permiso sales.paid
+      ...(hasPaidPermission && { isPaidOptions }),
+      creators: creatorOptions,
+      products: productOptions,
+    };
+  }
+
+  // Construir respuesta vacía para el reporte
+  private buildEmptyReportResponse() {
+    return {
+      sales: [],
+      pagination: {
+        page: 1,
+        limit: 20,
+        totalRecords: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+      summary: {
+        currency: "CUP",
+        totalSales: 0,
+        approved: { count: 0, totalCUP: "0.00" },
+        pending: { count: 0, totalCUP: "0.00" },
+        cancelled: { count: 0, totalCUP: "0.00" },
+        paid: { count: 0, totalCUP: "0.00" },
+        unpaid: { count: 0, totalCUP: "0.00" },
+      },
+      filterOptions: {
+        warehouses: [],
+        categories: [],
+        currencies: [],
+        paymentTypes: [],
+        statuses: [],
+        creators: [],
+        products: [],
+      },
+      appliedFilters: {},
+    };
+  }
 }

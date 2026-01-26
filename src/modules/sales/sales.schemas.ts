@@ -109,3 +109,29 @@ export const checkExchangeRatesSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido, use YYYY-MM-DD").optional(),
   }),
 });
+
+// Schema para el reporte avanzado de ventas
+// Este endpoint retorna ventas filtradas + opciones de filtro para el frontend
+export const getSalesReportSchema = z.object({
+  query: z.object({
+    // Rango de fechas (obligatorio)
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    
+    // Filtros opcionales
+    warehouseId: z.string().transform(Number).optional(),
+    productId: z.string().transform(Number).optional(),
+    categoryId: z.string().transform(Number).optional(),
+    currencyId: z.string().transform(Number).optional(),
+    paymentTypeId: z.string().transform(Number).optional(),
+    status: z.enum(["PENDING", "APPROVED", "CANCELLED"]).optional(),
+    isPaid: z.enum(["true", "false"]).optional(),
+    createdById: z.string().transform(Number).optional(),
+    customerId: z.string().optional(), // Buscar por nombre de cliente
+    invoiceNumber: z.string().optional(), // Buscar por número de factura
+    
+    // Paginación
+    page: z.string().transform(Number).optional(),
+    limit: z.string().transform(Number).optional(),
+  }),
+});
