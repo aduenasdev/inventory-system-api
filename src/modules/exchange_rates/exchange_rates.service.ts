@@ -165,13 +165,11 @@ export async function createBatchExchangeRates(data: {
   date: string;
   rates: { toCurrencyId: number; rate: number }[];
 }) {
-  console.log('🔧 Processing batch:', data);
   const fromCurrencyId = 1; // CUP es siempre la moneda base/origen
   const results = [];
 
   // Normalizar fecha a YYYY-MM-DD
   const normalizedDate = normalizeBusinessDate(data.date);
-  console.log('📅 Normalized date:', normalizedDate);
 
   // Validar que ninguna tasa sea para CUP
   const hasCUP = data.rates.some(r => r.toCurrencyId === 1);

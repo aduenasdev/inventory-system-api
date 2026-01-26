@@ -63,13 +63,9 @@ export async function updateExchangeRateHandler(req: Request, res: Response) {
 
 export async function createBatchExchangeRatesHandler(req: Request, res: Response) {
   try {
-    console.log('📥 Batch request received:', JSON.stringify(req.body, null, 2));
     const results = await createBatchExchangeRates(req.body);
-    console.log('✅ Batch created successfully:', results.length, 'rates');
     res.status(201).json(results);
   } catch (error: any) {
-    console.error('❌ Batch error:', error.message);
-    console.error('❌ Stack:', error.stack);
     res.status(400).json({ message: error.message });
   }
 }
