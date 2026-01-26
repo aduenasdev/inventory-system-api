@@ -28,24 +28,28 @@ export const getAllSales = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
     const userPermissions: string[] = (res.locals.user as any).permissions || [];
-    const { startDate, endDate, warehouseId, status, isPaid } = req.query as { 
+    const { startDate, endDate, warehouseId, status, isPaid, page, limit } = req.query as { 
       startDate: string; 
       endDate?: string;
       warehouseId?: string;
       status?: 'PENDING' | 'APPROVED' | 'CANCELLED';
       isPaid?: string;
+      page?: string;
+      limit?: string;
     };
     
-    const sales = await salesService.getAllSales(
+    const result = await salesService.getAllSales(
       userId, 
       userPermissions, 
       startDate, 
       endDate || startDate,  // Si no hay endDate, usar startDate (un solo día)
       warehouseId ? Number(warehouseId) : undefined,
       status,
-      isPaid !== undefined ? isPaid === 'true' : undefined
+      isPaid !== undefined ? isPaid === 'true' : undefined,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 20
     );
-    res.json(sales);
+    res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

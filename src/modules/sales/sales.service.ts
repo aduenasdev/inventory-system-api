@@ -515,8 +515,11 @@ export class SalesService {
   }
 
   // Query base con JOINs para obtener nombres de usuarios, almacén y moneda (para listados)
-  private async getSalesWithUserNames(whereCondition: any) {
-    return await db
+  private async getSalesWithUserNames(
+    whereCondition: any,
+    pagination?: { page: number; limit: number }
+  ) {
+    const query = db
       .select({
         id: sales.id,
         invoiceNumber: sales.invoiceNumber,
@@ -560,6 +563,23 @@ export class SalesService {
       .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
       .where(whereCondition)
       .orderBy(desc(sales.createdAt));
+
+    if (pagination) {
+      const offset = (pagination.page - 1) * pagination.limit;
+      return await query.limit(pagination.limit).offset(offset);
+    }
+
+    return await query;
+  }
+
+  // Contar total de ventas para paginación
+  private async countSales(whereCondition: any): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(sales)
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .where(whereCondition);
+    return Number(result?.count || 0);
   }
 
   // Obtener ventas filtradas según permisos del usuario y rango de fechas
@@ -570,8 +590,13 @@ export class SalesService {
     endDate: string,
     warehouseId?: number,
     status?: 'PENDING' | 'APPROVED' | 'CANCELLED',
-    isPaid?: boolean
+    isPaid?: boolean,
+    page: number = 1,
+    limit: number = 20
   ) {
+    // Validar límites de paginación
+    const validatedLimit = Math.min(Math.max(1, limit), 100); // Entre 1 y 100
+    const validatedPage = Math.max(1, page);
     const hasReadAll = userPermissions.includes("sales.read");
     const hasCancel = userPermissions.includes("sales.cancel");
     const hasAccept = userPermissions.includes("sales.accept");
@@ -588,7 +613,17 @@ export class SalesService {
 
     // Si el usuario no tiene almacenes asignados, no puede ver nada
     if (allowedWarehouseIds.length === 0) {
-      return [];
+      return {
+        data: [],
+        pagination: {
+          page: validatedPage,
+          limit: validatedLimit,
+          totalItems: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      };
     }
 
     // Condiciones base
@@ -602,7 +637,17 @@ export class SalesService {
     if (warehouseId) {
       // Verificar que el usuario tenga acceso al almacén solicitado
       if (!allowedWarehouseIds.includes(warehouseId)) {
-        return []; // No tiene acceso a ese almacén
+        return {
+          data: [],
+          pagination: {
+            page: validatedPage,
+            limit: validatedLimit,
+            totalItems: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        };
       }
       baseConditions.push(eq(sales.warehouseId, warehouseId));
     } else {
@@ -624,7 +669,21 @@ export class SalesService {
 
     // Si tiene sales.read → ve TODAS (dentro del rango, almacenes y filtros)
     if (hasReadAll) {
-      return await this.getSalesWithUserNames(baseCondition);
+      const [data, totalCount] = await Promise.all([
+        this.getSalesWithUserNames(baseCondition, { page: validatedPage, limit: validatedLimit }),
+        this.countSales(baseCondition)
+      ]);
+      return {
+        data,
+        pagination: {
+          page: validatedPage,
+          limit: validatedLimit,
+          totalItems: totalCount,
+          totalPages: Math.ceil(totalCount / validatedLimit),
+          hasNextPage: validatedPage < Math.ceil(totalCount / validatedLimit),
+          hasPrevPage: validatedPage > 1
+        }
+      };
     }
 
     // Construir condiciones según permisos
@@ -649,13 +708,36 @@ export class SalesService {
 
     // Si no tiene ningún permiso relevante, retornar vacío
     if (permissionConditions.length === 0) {
-      return [];
+      return {
+        data: [],
+        pagination: {
+          page: validatedPage,
+          limit: validatedLimit,
+          totalItems: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      };
     }
 
     // Combinar: (permisos OR) AND (condiciones base incluyendo almacenes)
-    return await this.getSalesWithUserNames(
-      and(baseCondition, or(...permissionConditions))
-    );
+    const finalCondition = and(baseCondition, or(...permissionConditions));
+    const [data, totalCount] = await Promise.all([
+      this.getSalesWithUserNames(finalCondition, { page: validatedPage, limit: validatedLimit }),
+      this.countSales(finalCondition)
+    ]);
+    return {
+      data,
+      pagination: {
+        page: validatedPage,
+        limit: validatedLimit,
+        totalItems: totalCount,
+        totalPages: Math.ceil(totalCount / validatedLimit),
+        hasNextPage: validatedPage < Math.ceil(totalCount / validatedLimit),
+        hasPrevPage: validatedPage > 1
+      }
+    };
   }
 
   // Obtener venta por ID (uso interno para operaciones)

@@ -435,24 +435,29 @@ async function main() {
   await db.execute(sql`
     CREATE TABLE transfers (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_number VARCHAR(50) NOT NULL UNIQUE,
       date DATE NOT NULL,
       origin_warehouse_id INT NOT NULL,
       destination_warehouse_id INT NOT NULL,
-      status ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+      status ENUM('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
       notes TEXT,
       rejection_reason TEXT,
+      cancellation_reason TEXT,
       created_by INT NOT NULL,
       approved_by INT,
       rejected_by INT,
+      cancelled_by INT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       approved_at TIMESTAMP NULL,
       rejected_at TIMESTAMP NULL,
+      cancelled_at TIMESTAMP NULL,
       FOREIGN KEY (origin_warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses(id),
       FOREIGN KEY (created_by) REFERENCES users(id),
       FOREIGN KEY (approved_by) REFERENCES users(id),
-      FOREIGN KEY (rejected_by) REFERENCES users(id)
+      FOREIGN KEY (rejected_by) REFERENCES users(id),
+      FOREIGN KEY (cancelled_by) REFERENCES users(id)
     )
   `);
 

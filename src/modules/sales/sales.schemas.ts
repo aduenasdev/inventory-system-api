@@ -70,7 +70,7 @@ export const getSalesTotalsReportSchema = z.object({
   }),
 });
 
-// Schema para listar ventas con rango de fechas obligatorio
+// Schema para listar ventas con rango de fechas obligatorio y paginación
 export const getAllSalesSchema = z.object({
   query: z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
@@ -78,6 +78,8 @@ export const getAllSalesSchema = z.object({
     warehouseId: z.string().transform(Number).optional(),
     status: z.enum(["PENDING", "APPROVED", "CANCELLED"]).optional(),
     isPaid: z.enum(["true", "false"]).optional(),
+    page: z.string().transform(Number).optional(), // Página (default: 1)
+    limit: z.string().transform(Number).optional(), // Registros por página (default: 20, max: 100)
   }),
 });
 
