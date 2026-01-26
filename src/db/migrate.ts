@@ -414,8 +414,7 @@ async function main() {
       product_id INT NOT NULL,
       quantity DECIMAL(18, 2) NOT NULL,
       unit_price DECIMAL(18, 2) NOT NULL,
-      payment_type_id INT NOT NULL,
-      original_currency_id INT,
+      original_currency_id INT NOT NULL,
       exchange_rate_used DECIMAL(18, 2),
       converted_unit_price DECIMAL(18, 2),
       subtotal DECIMAL(18, 2) NOT NULL,
@@ -423,7 +422,6 @@ async function main() {
       margin DECIMAL(18, 2),
       FOREIGN KEY (sale_id) REFERENCES sales(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
-      FOREIGN KEY (payment_type_id) REFERENCES payment_types(id),
       FOREIGN KEY (original_currency_id) REFERENCES currencies(id)
     )
   `);

@@ -2,7 +2,6 @@ import { mysqlTable, serial, int, decimal } from "drizzle-orm/mysql-core";
 import { sales } from "./sales";
 import { products } from "./products";
 import { currencies } from "./currencies";
-import { paymentTypes } from "./payment_types";
 
 export const salesDetail = mysqlTable("sales_detail", {
   id: serial("id").primaryKey(),
@@ -10,7 +9,6 @@ export const salesDetail = mysqlTable("sales_detail", {
   productId: int("product_id").notNull().references(() => products.id),
   quantity: decimal("quantity", { precision: 18, scale: 2 }).notNull(),
   unitPrice: decimal("unit_price", { precision: 18, scale: 2 }).notNull(),
-  paymentTypeId: int("payment_type_id").notNull().references(() => paymentTypes.id),
   
   // Auditoría de conversión de moneda
   originalCurrencyId: int("original_currency_id").notNull().references(() => currencies.id),

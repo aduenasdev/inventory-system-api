@@ -221,7 +221,7 @@ export class SalesService {
     customerPhone?: string;
     warehouseId: number;
     currencyId: number;
-    paymentTypeId?: number;
+    paymentTypeId: number; // Obligatorio
     date?: string; // Fecha de la venta (opcional, default: hoy)
     backdateReason?: string; // Requerido si date es retroactiva
     notes?: string;
@@ -230,7 +230,6 @@ export class SalesService {
       productId: number;
       quantity: number;
       unitPrice: number;
-      paymentTypeId: number;
     }>;
     userId: number;
     userPermissions: string[];
@@ -286,16 +285,14 @@ export class SalesService {
       }
     }
     
-    // Validar paymentTypeId de la factura si se proporciona
-    if (data.paymentTypeId) {
-      const [paymentType] = await db
-        .select()
-        .from(paymentTypes)
-        .where(eq(paymentTypes.id, data.paymentTypeId));
+    // Validar paymentTypeId de la factura (obligatorio)
+    const [paymentType] = await db
+      .select()
+      .from(paymentTypes)
+      .where(eq(paymentTypes.id, data.paymentTypeId));
 
-      if (!paymentType) {
-        throw new NotFoundError(`Tipo de pago con ID ${data.paymentTypeId} no encontrado`);
-      }
+    if (!paymentType) {
+      throw new NotFoundError(`Tipo de pago con ID ${data.paymentTypeId} no encontrado`);
     }
 
     // Validar stock para todos los productos
@@ -329,16 +326,6 @@ export class SalesService {
           throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
-        // Validar paymentType
-        const [paymentType] = await db
-          .select()
-          .from(paymentTypes)
-          .where(eq(paymentTypes.id, detail.paymentTypeId));
-
-        if (!paymentType) {
-          throw new NotFoundError(`Tipo de pago con ID ${detail.paymentTypeId} no encontrado`);
-        }
-
         // El precio de venta viene en la moneda de la factura (no del producto)
         // Solo calculamos el precio convertido a CUP para referencia/reportes si la factura no es en CUP
         const facturaCurrencyId = data.currencyId;
@@ -369,7 +356,6 @@ export class SalesService {
           productId: detail.productId,
           quantity: detail.quantity.toString(),
           unitPrice: detail.unitPrice.toString(),
-          paymentTypeId: detail.paymentTypeId,
           originalCurrencyId: facturaCurrencyId, // La moneda original es la de la factura
           exchangeRateUsed: exchangeRateUsed?.toString() || null,
           convertedUnitPrice: convertedUnitPrice.toString(), // Precio convertido a CUP (si aplica)
@@ -761,7 +747,6 @@ export class SalesService {
         productName: products.name,
         quantity: salesDetail.quantity,
         unitPrice: salesDetail.unitPrice,
-        paymentTypeId: salesDetail.paymentTypeId,
         originalCurrencyId: salesDetail.originalCurrencyId,
         exchangeRateUsed: salesDetail.exchangeRateUsed,
         convertedUnitPrice: salesDetail.convertedUnitPrice,
@@ -793,8 +778,6 @@ export class SalesService {
         productName: products.name,
         quantity: salesDetail.quantity,
         unitPrice: salesDetail.unitPrice,
-        paymentTypeId: salesDetail.paymentTypeId,
-        paymentTypeName: paymentTypes.type,
         originalCurrencyId: salesDetail.originalCurrencyId,
         exchangeRateUsed: salesDetail.exchangeRateUsed,
         convertedUnitPrice: salesDetail.convertedUnitPrice,
@@ -804,7 +787,6 @@ export class SalesService {
       })
       .from(salesDetail)
       .innerJoin(products, eq(salesDetail.productId, products.id))
-      .innerJoin(paymentTypes, eq(salesDetail.paymentTypeId, paymentTypes.id))
       .where(eq(salesDetail.saleId, id));
 
     return Object.assign({}, sale, { details });
@@ -1683,8 +1665,9 @@ export class SalesService {
       conditions.push(eq(sales.status, filters.status));
     }
 
-    // Filtro por estado de pago
-    if (filters.isPaid !== undefined) {
+    // Filtro por estado de pago (solo si tiene permiso sales.paid)
+    const hasPaidPermission = userPermissions.includes("sales.paid");
+    if (filters.isPaid !== undefined && hasPaidPermission) {
       conditions.push(eq(sales.isPaid, filters.isPaid));
     }
 
@@ -1712,16 +1695,18 @@ export class SalesService {
     if (!hasReadAll) {
       const permissionConditions: any[] = [];
       
+      // hasCancel: puede ver PENDING y APPROVED
+      // hasAccept: puede ver PENDING
+      // Si tiene hasCancel, ya cubre PENDING, no necesita hasAccept
       if (hasCancel) {
         permissionConditions.push(
-          or(eq(sales.status, "PENDING"), eq(sales.status, "APPROVED"))
+          inArray(sales.status, ["PENDING", "APPROVED"])
         );
-      }
-      
-      if (hasAccept && !hasCancel) {
+      } else if (hasAccept) {
         permissionConditions.push(eq(sales.status, "PENDING"));
       }
       
+      // hasCreate: puede ver las que creó (cualquier estado)
       if (hasCreate) {
         permissionConditions.push(eq(sales.createdBy, userId));
       }
@@ -1733,15 +1718,12 @@ export class SalesService {
       }
     }
 
-    // Si hay filtro por producto o categoría, necesitamos hacer subquery
-    let saleIdsWithProductFilter: number[] | null = null;
-    
+    // Si hay filtro por producto o categoría, buscar en los detalles
     if (filters.productId || filters.categoryId) {
-      // Buscar ventas que contengan el producto o productos de la categoría
-      let productConditions: any[] = [];
+      let detailConditions: any[] = [];
       
       if (filters.productId) {
-        productConditions.push(eq(salesDetail.productId, filters.productId));
+        detailConditions.push(eq(salesDetail.productId, filters.productId));
       }
       
       if (filters.categoryId) {
@@ -1755,24 +1737,25 @@ export class SalesService {
           return this.buildEmptyReportResponse();
         }
         
-        productConditions.push(
+        detailConditions.push(
           inArray(salesDetail.productId, categoryProducts.map(p => p.id))
         );
       }
 
-      const salesWithProduct = await db
+      // Buscar ventas que cumplan con los filtros de detalle
+      const salesWithDetailFilter = await db
         .select({ saleId: salesDetail.saleId })
         .from(salesDetail)
-        .where(and(...productConditions))
+        .where(and(...detailConditions))
         .groupBy(salesDetail.saleId);
       
-      saleIdsWithProductFilter = salesWithProduct.map(s => s.saleId);
+      const filteredSaleIds = salesWithDetailFilter.map(s => s.saleId);
       
-      if (saleIdsWithProductFilter.length === 0) {
+      if (filteredSaleIds.length === 0) {
         return this.buildEmptyReportResponse();
       }
       
-      conditions.push(inArray(sales.id, saleIdsWithProductFilter));
+      conditions.push(inArray(sales.id, filteredSaleIds));
     }
 
     const whereCondition = and(...conditions);
@@ -1872,12 +1855,14 @@ export class SalesService {
       .select({
         id: sales.id,
         currencyId: sales.currencyId,
+        currencyCode: currencies.code,
         total: sales.total,
         status: sales.status,
         isPaid: sales.isPaid,
         date: sales.date,
       })
       .from(sales)
+      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
       .where(whereCondition);
 
     let totalApprovedCUP = 0;
@@ -1892,8 +1877,41 @@ export class SalesService {
     let countPaid = 0;
     let countUnpaid = 0;
 
+    // Agrupar por moneda
+    const byCurrency: Record<string, { 
+      currencyId: number;
+      code: string;
+      count: number; 
+      total: number;
+      approved: { count: number; total: number };
+      pending: { count: number; total: number };
+      cancelled: { count: number; total: number };
+      paid: { count: number; total: number };
+      unpaid: { count: number; total: number };
+    }> = {};
+
     for (const sale of matchingSales) {
       let totalInCUP = parseFloat(sale.total);
+      const saleTotal = parseFloat(sale.total);
+      
+      // Inicializar moneda si no existe
+      if (!byCurrency[sale.currencyCode]) {
+        byCurrency[sale.currencyCode] = {
+          currencyId: sale.currencyId,
+          code: sale.currencyCode,
+          count: 0,
+          total: 0,
+          approved: { count: 0, total: 0 },
+          pending: { count: 0, total: 0 },
+          cancelled: { count: 0, total: 0 },
+          paid: { count: 0, total: 0 },
+          unpaid: { count: 0, total: 0 },
+        };
+      }
+      
+      // Sumar a la moneda
+      byCurrency[sale.currencyCode].count++;
+      byCurrency[sale.currencyCode].total += saleTotal;
       
       // Convertir a CUP si es necesario
       if (sale.currencyId !== BASE_CURRENCY_ID) {
@@ -1908,31 +1926,55 @@ export class SalesService {
         }
       }
 
-      // Sumar por estado
+      // Sumar por estado (totales en CUP y por moneda)
       switch (sale.status) {
         case "APPROVED":
           totalApprovedCUP += totalInCUP;
           countApproved++;
+          byCurrency[sale.currencyCode].approved.count++;
+          byCurrency[sale.currencyCode].approved.total += saleTotal;
           if (sale.isPaid) {
             totalPaidCUP += totalInCUP;
             countPaid++;
+            byCurrency[sale.currencyCode].paid.count++;
+            byCurrency[sale.currencyCode].paid.total += saleTotal;
           } else {
             totalUnpaidCUP += totalInCUP;
             countUnpaid++;
+            byCurrency[sale.currencyCode].unpaid.count++;
+            byCurrency[sale.currencyCode].unpaid.total += saleTotal;
           }
           break;
         case "PENDING":
           totalPendingCUP += totalInCUP;
           countPending++;
+          byCurrency[sale.currencyCode].pending.count++;
+          byCurrency[sale.currencyCode].pending.total += saleTotal;
           break;
         case "CANCELLED":
           totalCancelledCUP += totalInCUP;
           countCancelled++;
+          byCurrency[sale.currencyCode].cancelled.count++;
+          byCurrency[sale.currencyCode].cancelled.total += saleTotal;
           break;
       }
     }
 
+    // Formatear totales por moneda
+    const totalsByCurrency = Object.values(byCurrency).map(c => ({
+      currencyId: c.currencyId,
+      code: c.code,
+      count: c.count,
+      total: c.total.toFixed(2),
+      approved: { count: c.approved.count, total: c.approved.total.toFixed(2) },
+      pending: { count: c.pending.count, total: c.pending.total.toFixed(2) },
+      cancelled: { count: c.cancelled.count, total: c.cancelled.total.toFixed(2) },
+      paid: { count: c.paid.count, total: c.paid.total.toFixed(2) },
+      unpaid: { count: c.unpaid.count, total: c.unpaid.total.toFixed(2) },
+    }));
+
     return {
+      // Totales convertidos a CUP (para comparabilidad)
       currency: "CUP",
       totalSales: matchingSales.length,
       
@@ -1956,6 +1998,9 @@ export class SalesService {
         count: countUnpaid,
         totalCUP: totalUnpaidCUP.toFixed(2),
       },
+      
+      // Totales desglosados por moneda original
+      byCurrency: totalsByCurrency,
     };
   }
 
@@ -2085,6 +2130,7 @@ export class SalesService {
         cancelled: { count: 0, totalCUP: "0.00" },
         paid: { count: 0, totalCUP: "0.00" },
         unpaid: { count: 0, totalCUP: "0.00" },
+        byCurrency: [],
       },
       filterOptions: {
         warehouses: [],

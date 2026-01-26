@@ -1,6 +1,6 @@
 import { db } from "../../db/connection";
 import { paymentTypes } from "../../db/schema/payment_types";
-import { salesDetail } from "../../db/schema/sales_detail";
+import { sales } from "../../db/schema/sales";
 import { eq } from "drizzle-orm";
 import { ConflictError, ValidationError } from "../../utils/errors";
 
@@ -70,8 +70,8 @@ export async function deletePaymentType(paymentTypeId: number) {
   // Verificar si el tipo de pago está asociado a ventas
   const salesWithPaymentType = await db
     .select()
-    .from(salesDetail)
-    .where(eq(salesDetail.paymentTypeId, paymentTypeId))
+    .from(sales)
+    .where(eq(sales.paymentTypeId, paymentTypeId))
     .limit(1);
 
   if (salesWithPaymentType.length > 0) {

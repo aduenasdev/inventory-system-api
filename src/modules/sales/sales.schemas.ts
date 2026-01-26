@@ -6,7 +6,7 @@ export const createSaleSchema = z.object({
     customerPhone: z.string().optional(),
     warehouseId: z.number().int().positive(),
     currencyId: z.number().int().positive(),
-    paymentTypeId: z.number().int().positive().optional(),
+    paymentTypeId: z.number().int().positive(), // Tipo de pago de la factura (obligatorio)
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Fecha de la venta (default: hoy)
     backdateReason: z.string().min(10, "Debe indicar el motivo de la fecha retroactiva (mínimo 10 caracteres)").optional(),
     notes: z.string().optional(),
@@ -16,7 +16,6 @@ export const createSaleSchema = z.object({
         productId: z.number().int().positive(),
         quantity: z.number().positive(),
         unitPrice: z.number().positive(),
-        paymentTypeId: z.number().int().positive(),
       })
     ).min(1, "Debe incluir al menos un producto"),
   }),
