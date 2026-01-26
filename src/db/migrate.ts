@@ -586,6 +586,7 @@ async function main() {
     { name: 'reports.stock.read', description: 'Ver stock actual de almacenes', group_name: 'reports' },
     { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
     { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
+    { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
   ];
 
   for (const p of fixedPermissions) {

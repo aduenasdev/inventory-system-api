@@ -147,6 +147,7 @@ router.get(
 router.get(
   "/reports/advanced",
   authMiddleware,
+  hasPermission("reports.sales.read"),
   validate(getSalesReportSchema),
   getSalesReport
 );
