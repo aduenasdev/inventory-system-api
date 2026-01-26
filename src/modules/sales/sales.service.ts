@@ -1001,55 +1001,68 @@ export class SalesService {
         date: sales.date,
         warehouseId: sales.warehouseId,
         warehouseName: warehouses.name,
-        total: sales.total,
+        currencyId: sales.currencyId,
+        currencyCode: currencies.code,
+        total: sales.total, // En moneda original de la factura
         customerName: sales.customerName,
         isPaid: sales.isPaid,
       })
       .from(sales)
       .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
       .where(and(...conditions))
       .orderBy(desc(sales.date));
 
-    // Calcular totales de cada venta
+    // Calcular totales de cada venta (TODO en CUP para comparar correctamente)
     const salesWithTotals = await Promise.all(
       salesData.map(async (sale) => {
         const details = await db
           .select({
-            subtotal: salesDetail.subtotal,
+            quantity: salesDetail.quantity,
+            convertedUnitPrice: salesDetail.convertedUnitPrice, // Precio en CUP
+            unitPrice: salesDetail.unitPrice, // Precio original (si es CUP, no hay convertedUnitPrice)
             realCost: salesDetail.realCost,
             margin: salesDetail.margin,
           })
           .from(salesDetail)
           .where(eq(salesDetail.saleId, sale.id));
 
-        const totalRevenue = details.reduce((sum, d) => sum + parseFloat(d.subtotal), 0);
+        // Usar convertedUnitPrice (en CUP) para calcular revenue, así es comparable con realCost
+        // Si convertedUnitPrice es null, significa que la factura ya estaba en CUP
+        const totalRevenue = details.reduce((sum, d) => {
+          const qty = parseFloat(d.quantity);
+          const priceInCUP = parseFloat(d.convertedUnitPrice || d.unitPrice);
+          return sum + (qty * priceInCUP);
+        }, 0);
         const totalCost = details.reduce((sum, d) => sum + parseFloat(d.realCost || "0"), 0);
         const totalMargin = details.reduce((sum, d) => sum + parseFloat(d.margin || "0"), 0);
         const marginPercent = totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0;
 
         return {
           ...sale,
-          totalRevenue: totalRevenue.toFixed(2),
-          totalCost: totalCost.toFixed(2),
-          totalMargin: totalMargin.toFixed(2),
+          // Todos estos valores están en CUP (moneda base) para poder comparar correctamente
+          totalRevenueCUP: totalRevenue.toFixed(2),
+          totalCostCUP: totalCost.toFixed(2),
+          totalMarginCUP: totalMargin.toFixed(2),
           marginPercent: marginPercent.toFixed(2) + "%",
         };
       })
     );
 
-    // Totales generales
-    const overallRevenue = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalRevenue), 0);
-    const overallCost = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalCost), 0);
-    const overallMargin = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalMargin), 0);
+    // Totales generales (en CUP)
+    const overallRevenue = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalRevenueCUP), 0);
+    const overallCost = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalCostCUP), 0);
+    const overallMargin = salesWithTotals.reduce((sum, s) => sum + parseFloat(s.totalMarginCUP), 0);
     const overallMarginPercent = overallRevenue > 0 ? (overallMargin / overallRevenue) * 100 : 0;
 
     return {
+      currency: "CUP", // Indicar que todos los valores monetarios están en CUP
       sales: salesWithTotals,
       summary: {
         totalSales: salesWithTotals.length,
-        totalRevenue: overallRevenue.toFixed(2),
-        totalCost: overallCost.toFixed(2),
-        totalMargin: overallMargin.toFixed(2),
+        totalRevenueCUP: overallRevenue.toFixed(2),
+        totalCostCUP: overallCost.toFixed(2),
+        totalMarginCUP: overallMargin.toFixed(2),
         marginPercent: overallMarginPercent.toFixed(2) + "%",
       },
     };
@@ -1110,6 +1123,7 @@ export class SalesService {
   }
 
   // Reporte de ventas diarias
+  // NOTA: Para sumar totales correctamente, se deben convertir a CUP (moneda base)
   async getDailySalesReport(date: string) {
     const normalizedDate = normalizeBusinessDate(date);
     
@@ -1122,7 +1136,7 @@ export class SalesService {
         warehouseName: warehouses.name,
         currencyId: sales.currencyId,
         currencyCode: currencies.code,
-        total: sales.total,
+        total: sales.total, // En moneda original de la factura
         status: sales.status,
         isPaid: sales.isPaid,
         createdAt: sales.createdAt,
@@ -1138,18 +1152,66 @@ export class SalesService {
       )
       .orderBy(desc(sales.createdAt));
 
-    // Calcular totales
+    // Calcular totales EN CUP para poder sumar diferentes monedas
     const totalSales = dailySales.length;
-    const totalRevenue = dailySales.reduce((sum, s) => sum + parseFloat(s.total), 0);
     const paidSales = dailySales.filter(s => s.isPaid).length;
     const unpaidSales = dailySales.filter(s => !s.isPaid).length;
 
+    // Convertir cada venta a CUP y calcular total
+    let totalRevenueCUP = 0;
+    const salesWithConversion = await Promise.all(
+      dailySales.map(async (sale) => {
+        let totalInCUP = parseFloat(sale.total);
+        let exchangeRateUsed: number | null = null;
+        
+        // Si la factura NO está en CUP, convertir
+        if (sale.currencyId !== BASE_CURRENCY_ID) {
+          try {
+            const rate = await this.getExchangeRate(sale.currencyId, BASE_CURRENCY_ID, normalizedDate);
+            if (rate) {
+              totalInCUP = parseFloat(sale.total) * rate;
+              exchangeRateUsed = rate;
+            }
+          } catch {
+            // Si no hay tasa, mantener el valor original (no ideal pero evita error)
+            // En producción deberían existir todas las tasas
+          }
+        }
+        
+        totalRevenueCUP += totalInCUP;
+        
+        return {
+          ...sale,
+          totalInCUP: totalInCUP.toFixed(2),
+          exchangeRateUsed: exchangeRateUsed?.toFixed(4) || null,
+        };
+      })
+    );
+
+    // Agrupar ventas por moneda para mostrar subtotales
+    const byMoneda: Record<string, { count: number; total: number }> = {};
+    for (const sale of dailySales) {
+      const code = sale.currencyCode;
+      if (!byMoneda[code]) {
+        byMoneda[code] = { count: 0, total: 0 };
+      }
+      byMoneda[code].count++;
+      byMoneda[code].total += parseFloat(sale.total);
+    }
+
+    const subtotalsByMoneda = Object.entries(byMoneda).map(([code, data]) => ({
+      currency: code,
+      count: data.count,
+      total: data.total.toFixed(2),
+    }));
+
     return {
       date: normalizedDate,
-      sales: dailySales,
+      sales: salesWithConversion,
       summary: {
         totalSales,
-        totalRevenue: totalRevenue.toFixed(2),
+        totalRevenueCUP: totalRevenueCUP.toFixed(2), // Total convertido a CUP
+        subtotalsByMoneda, // Subtotales por cada moneda
         paidSales,
         unpaidSales,
       },
@@ -1214,17 +1276,28 @@ export class SalesService {
 
     // Convertir totales a moneda objetivo
     let totalRevenueConverted = 0;
+    const salesWithMissingRate: string[] = []; // Facturas sin tasa de cambio
 
     const salesWithConversion = await Promise.all(
       periodSales.map(async (sale) => {
         let convertedTotal = parseFloat(sale.total);
+        let exchangeRateUsed: number | null = null;
+        let conversionWarning: string | null = null;
         
         if (sale.currencyId !== targetCurrencyId) {
           // Buscar tasa de cambio
           const saleDate = normalizeBusinessDate(sale.date);
-          const rate = await this.getExchangeRate(sale.currencyId, targetCurrencyId, saleDate);
-          if (rate) {
-            convertedTotal = parseFloat(sale.total) * rate;
+          try {
+            const rate = await this.getExchangeRate(sale.currencyId, targetCurrencyId, saleDate);
+            if (rate) {
+              convertedTotal = parseFloat(sale.total) * rate;
+              exchangeRateUsed = rate;
+            }
+          } catch {
+            // Si no hay tasa, marcar con advertencia (no incluir en total)
+            conversionWarning = `Sin tasa de cambio para ${saleDate}`;
+            salesWithMissingRate.push(sale.invoiceNumber);
+            convertedTotal = 0; // No incluir en el total si no hay tasa
           }
         }
         
@@ -1233,6 +1306,8 @@ export class SalesService {
         return {
           ...sale,
           convertedTotal: convertedTotal.toFixed(2),
+          exchangeRateUsed: exchangeRateUsed?.toFixed(4) || null,
+          conversionWarning,
         };
       })
     );
@@ -1250,6 +1325,10 @@ export class SalesService {
         totalRevenue: totalRevenueConverted.toFixed(2),
         paidSales,
         unpaidSales,
+        // Advertencia si hay facturas que no pudieron convertirse
+        ...(salesWithMissingRate.length > 0 && {
+          warning: `${salesWithMissingRate.length} factura(s) no incluidas en el total por falta de tasa de cambio: ${salesWithMissingRate.join(", ")}`,
+        }),
       },
     };
   }

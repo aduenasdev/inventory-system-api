@@ -761,10 +761,20 @@ export class TransfersService {
 
       // Revertir los lotes creados (eliminarlos del destino)
       for (const lot of lotsInDestination) {
+        const lotQuantity = parseFloat(lot.currentQuantity);
+        
         await tx
           .update(inventoryLots)
-          .set({ status: "EXHAUSTED" })
+          .set({ status: "EXHAUSTED", currentQuantity: "0" })
           .where(eq(inventoryLots.id, lot.id));
+        
+        // ✅ CORRECCIÓN: Actualizar caché del destino (restar)
+        await lotService.updateInventoryCache(
+          transfer.destinationWarehouseId,
+          lot.productId,
+          -lotQuantity,
+          tx
+        );
       }
 
       // Para los lotes que se movieron completos, moverlos de vuelta al origen
@@ -776,18 +786,37 @@ export class TransfersService {
             .where(eq(inventoryLots.id, movement.lotId));
           
           if (lot && lot.sourceType === "PURCHASE") {
+            const lotQuantity = parseFloat(lot.currentQuantity);
+            
             // Este lote se movió completo, regresarlo
             await tx
               .update(inventoryLots)
               .set({ warehouseId: transfer.originWarehouseId })
               .where(eq(inventoryLots.id, movement.lotId));
+            
+            // ✅ CORRECCIÓN: Actualizar caché (restar del destino, sumar al origen)
+            await lotService.updateInventoryCache(
+              transfer.destinationWarehouseId,
+              lot.productId,
+              -lotQuantity,
+              tx
+            );
+            await lotService.updateInventoryCache(
+              transfer.originWarehouseId,
+              lot.productId,
+              lotQuantity,
+              tx
+            );
           }
         }
       }
 
       // Revertir consumos de lotes parciales en el origen
       const transferDetails = await tx
-        .select({ id: transfersDetail.id })
+        .select({ 
+          id: transfersDetail.id,
+          productId: transfersDetail.productId,
+        })
         .from(transfersDetail)
         .where(eq(transfersDetail.transferId, id));
 
@@ -804,6 +833,8 @@ export class TransfersService {
           );
 
         for (const consumption of consumptions) {
+          const consumedQty = parseFloat(consumption.quantity);
+          
           // Revertir la cantidad al lote original
           await tx
             .update(inventoryLots)
@@ -812,6 +843,14 @@ export class TransfersService {
               status: "ACTIVE",
             })
             .where(eq(inventoryLots.id, consumption.lotId));
+          
+          // ✅ CORRECCIÓN: Actualizar caché del origen (sumar de vuelta)
+          await lotService.updateInventoryCache(
+            transfer.originWarehouseId,
+            detail.productId,
+            consumedQty,
+            tx
+          );
         }
 
         // Eliminar los registros de consumo
