@@ -1,15 +1,20 @@
 import { z } from "zod";
 
+// Schema para listar inventario con paginación y filtros
+export const getInventoryListSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(),
+    categoryId: z.string().transform(Number).optional(),
+    search: z.string().optional(),
+    page: z.string().transform(Number).optional(),
+    limit: z.string().transform(Number).optional(),
+  }),
+});
+
 export const getStockByWarehouseAndProductSchema = z.object({
   params: z.object({
     warehouseId: z.string().transform(Number),
     productId: z.string().transform(Number),
-  }),
-});
-
-export const getStockByWarehouseSchema = z.object({
-  params: z.object({
-    warehouseId: z.string().transform(Number),
   }),
 });
 

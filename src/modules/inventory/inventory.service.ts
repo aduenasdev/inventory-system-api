@@ -6,12 +6,117 @@ import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { currencies } from "../../db/schema/currencies";
-import { eq, and, sql, desc, gte, lte, inArray, gt, asc } from "drizzle-orm";
+import { categories } from "../../db/schema/categories";
+import { eq, and, sql, desc, gte, lte, inArray, gt, asc, like, or } from "drizzle-orm";
 import { ForbiddenError, ValidationError } from "../../utils/errors";
 import { lotService } from "./lots.service";
 import { getTodayDateString, normalizeBusinessDate } from "../../utils/date";
 
 export class InventoryService {
+  // Listar inventario con paginación y filtros
+  async getInventoryList(
+    userId: number,
+    options: {
+      warehouseId?: number;
+      categoryId?: number;
+      search?: string;
+      page?: number;
+      limit?: number;
+    }
+  ) {
+    const page = Math.max(1, options.page || 1);
+    const limit = Math.min(100, Math.max(1, options.limit || 20));
+    const offset = (page - 1) * limit;
+
+    // Obtener almacenes del usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    let allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
+
+    // Si se especifica un almacén, validar acceso
+    if (options.warehouseId) {
+      if (!allowedWarehouseIds.includes(options.warehouseId)) {
+        throw new ForbiddenError("No tiene acceso a este almacén");
+      }
+      allowedWarehouseIds = [options.warehouseId];
+    }
+
+    if (allowedWarehouseIds.length === 0) {
+      return {
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      };
+    }
+
+    // Construir condiciones
+    const conditions: any[] = [
+      inArray(inventory.warehouseId, allowedWarehouseIds),
+      gt(inventory.currentQuantity, "0"),
+    ];
+
+    // Filtro por categoría
+    if (options.categoryId) {
+      conditions.push(eq(products.categoryId, options.categoryId));
+    }
+
+    // Filtro de búsqueda por nombre o código
+    if (options.search) {
+      conditions.push(
+        or(
+          like(products.name, `%${options.search}%`),
+          like(products.code, `%${options.search}%`)
+        )
+      );
+    }
+
+    // Contar total
+    const [countResult] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(...conditions));
+
+    const total = Number(countResult?.count || 0);
+    const totalPages = Math.ceil(total / limit);
+
+    // Obtener datos paginados
+    const data = await db
+      .select({
+        id: inventory.id,
+        warehouseId: inventory.warehouseId,
+        warehouseName: warehouses.name,
+        productId: inventory.productId,
+        productName: products.name,
+        productCode: products.code,
+        categoryId: products.categoryId,
+        categoryName: categories.name,
+        currentQuantity: inventory.currentQuantity,
+        updatedAt: inventory.updatedAt,
+      })
+      .from(inventory)
+      .innerJoin(products, eq(inventory.productId, products.id))
+      .innerJoin(warehouses, eq(inventory.warehouseId, warehouses.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(...conditions))
+      .orderBy(warehouses.name, products.name)
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
+  }
+
   // Obtener stock actual de un producto en un almacén (desde cache o lotes)
   async getStockByWarehouseAndProduct(warehouseId: number, productId: number) {
     // Calcular desde lotes activos (fuente de verdad)

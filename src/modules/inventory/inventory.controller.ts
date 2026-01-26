@@ -4,6 +4,33 @@ import { lotService } from "./lots.service";
 
 const inventoryService = new InventoryService();
 
+// Listar inventario con paginación y filtros
+export const getInventoryList = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const { warehouseId, categoryId, search, page, limit } = req.query as {
+      warehouseId?: string;
+      categoryId?: string;
+      search?: string;
+      page?: string;
+      limit?: string;
+    };
+
+    const result = await inventoryService.getInventoryList(userId, {
+      warehouseId: warehouseId ? Number(warehouseId) : undefined,
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      search,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    const status = error.name === "ForbiddenError" ? 403 : 500;
+    res.status(status).json({ error: error.message });
+  }
+};
+
 export const getStockByWarehouseAndProduct = async (
   req: Request,
   res: Response
@@ -15,18 +42,6 @@ export const getStockByWarehouseAndProduct = async (
       Number(productId)
     );
     res.json(stock);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-export const getStockByWarehouse = async (req: Request, res: Response) => {
-  try {
-    const { warehouseId } = req.params;
-    const stocks = await inventoryService.getStockByWarehouse(
-      Number(warehouseId)
-    );
-    res.json(stocks);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -3,8 +3,8 @@ import { authMiddleware } from "../../middlewares/auth.middleware";
 import { hasPermission } from "../../middlewares/authorization.middleware";
 import { validate } from "../../middlewares/validate";
 import {
+  getInventoryList,
   getStockByWarehouseAndProduct,
-  getStockByWarehouse,
   getProductKardex,
   createAdjustment,
   getInventoryValueReport,
@@ -15,8 +15,8 @@ import {
   getLotKardex,
 } from "./inventory.controller";
 import {
+  getInventoryListSchema,
   getStockByWarehouseAndProductSchema,
-  getStockByWarehouseSchema,
   getProductKardexSchema,
   createAdjustmentSchema,
   getInventoryValueReportSchema,
@@ -28,6 +28,17 @@ import {
 } from "./inventory.schemas";
 
 const router = Router();
+
+// ========== RUTA PRINCIPAL DE INVENTARIO ==========
+
+// GET /inventory - Listar inventario con paginación y filtros
+router.get(
+  "/",
+  authMiddleware,
+  hasPermission("inventory.read"),
+  validate(getInventoryListSchema),
+  getInventoryList
+);
 
 // ========== RUTAS DE LOTES (primero para evitar conflictos con :warehouseId) ==========
 
@@ -112,15 +123,6 @@ router.get(
   hasPermission("inventory.read"),
   validate(getStockByWarehouseAndProductSchema),
   getStockByWarehouseAndProduct
-);
-
-// GET /inventory/:warehouseId - Stock completo de un almacén
-router.get(
-  "/:warehouseId",
-  authMiddleware,
-  hasPermission("inventory.read"),
-  validate(getStockByWarehouseSchema),
-  getStockByWarehouse
 );
 
 export default router;
