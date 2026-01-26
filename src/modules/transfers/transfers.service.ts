@@ -318,10 +318,12 @@ export class TransfersService {
         });
       }
 
-      return { 
-        id: transferId, 
-        transferNumber,
-        message: "Traslado creado exitosamente. Pendiente de aprobación por el almacén destino." 
+      return transferId;
+    }).then(async (transferId) => {
+      const completeTransfer = await this.getTransferById(transferId);
+      return {
+        message: "Traslado creado exitosamente. Pendiente de aprobación por el almacén destino.",
+        data: completeTransfer
       };
     });
   }
@@ -615,7 +617,13 @@ export class TransfersService {
         }
       }
 
-      return { message: "Traslado aceptado exitosamente. Lotes transferidos." };
+      return id;
+    }).then(async (transferId) => {
+      const completeTransfer = await this.getTransferById(transferId);
+      return {
+        message: "Traslado aceptado exitosamente. Lotes transferidos.",
+        data: completeTransfer
+      };
     });
   }
 
@@ -640,7 +648,11 @@ export class TransfersService {
       })
       .where(eq(transfers.id, id));
 
-    return { message: "Traslado rechazado exitosamente" };
+    const completeTransfer = await this.getTransferById(id);
+    return {
+      message: "Traslado rechazado exitosamente",
+      data: completeTransfer
+    };
   }
 
   // ========== CANCELAR TRASLADO APROBADO ==========
@@ -838,8 +850,12 @@ export class TransfersService {
         });
       }
 
-      return { 
-        message: "Traslado anulado exitosamente. Los lotes han sido revertidos al almacén origen." 
+      return id;
+    }).then(async (transferId) => {
+      const completeTransfer = await this.getTransferById(transferId);
+      return {
+        message: "Traslado anulado exitosamente. Los lotes han sido revertidos al almacén origen.",
+        data: completeTransfer
       };
     });
   }
