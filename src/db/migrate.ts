@@ -573,9 +573,12 @@ async function main() {
 
     // Traslados
     { name: 'transfers.read', description: 'Leer traslados', group_name: 'transfers' },
+    { name: 'transfers.readAll', description: 'Leer todos los traslados (sin filtro por almacén)', group_name: 'transfers' },
     { name: 'transfers.create', description: 'Crear traslados', group_name: 'transfers' },
     { name: 'transfers.accept', description: 'Aceptar traslados', group_name: 'transfers' },
     { name: 'transfers.reject', description: 'Rechazar traslados', group_name: 'transfers' },
+    { name: 'transfers.cancel', description: 'Anular traslados aprobados', group_name: 'transfers' },
+    { name: 'transfers.backdate', description: 'Crear traslados con fecha retroactiva', group_name: 'transfers' },
 
     // Reportes
     { name: 'reports.stock.read', description: 'Ver stock actual de almacenes', group_name: 'reports' },

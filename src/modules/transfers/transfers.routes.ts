@@ -6,20 +6,83 @@ import {
   createTransferSchema,
   acceptTransferSchema,
   rejectTransferSchema,
-  getTransfersByWarehouseSchema,
+  cancelTransferSchema,
+  getAllTransfersSchema,
+  getAvailableProductsSchema,
   getRejectedTransfersReportSchema,
+  getCancelledTransfersReportSchema,
 } from "./transfers.schemas";
 import {
   createTransfer,
   getAllTransfers,
   getTransferById,
-  getTransfersByWarehouse,
   acceptTransfer,
   rejectTransfer,
+  cancelTransfer,
   getRejectedTransfersReport,
+  getCancelledTransfersReport,
+  getOriginWarehouses,
+  getDestinationWarehouses,
+  getAvailableProducts,
+  getCategories,
 } from "./transfers.controller";
 
 const router = Router();
+
+// ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
+
+// Obtener almacenes origen (solo los asignados al usuario)
+router.get(
+  "/warehouses/origin",
+  authMiddleware,
+  hasPermission("transfers.create"),
+  getOriginWarehouses
+);
+
+// Obtener almacenes destino (todos los activos)
+router.get(
+  "/warehouses/destination",
+  authMiddleware,
+  hasPermission("transfers.create"),
+  getDestinationWarehouses
+);
+
+// Obtener productos con stock disponible en un almacén
+router.get(
+  "/products/:warehouseId",
+  authMiddleware,
+  hasPermission("transfers.create"),
+  validate(getAvailableProductsSchema),
+  getAvailableProducts
+);
+
+// Obtener categorías activas
+router.get(
+  "/categories",
+  authMiddleware,
+  hasPermission("transfers.create"),
+  getCategories
+);
+
+// ========== REPORTES (antes de /:id para evitar conflictos) ==========
+
+router.get(
+  "/reports/rejected",
+  authMiddleware,
+  hasPermission("transfers.read"),
+  validate(getRejectedTransfersReportSchema),
+  getRejectedTransfersReport
+);
+
+router.get(
+  "/reports/cancelled",
+  authMiddleware,
+  hasPermission("transfers.read"),
+  validate(getCancelledTransfersReportSchema),
+  getCancelledTransfersReport
+);
+
+// ========== CRUD TRASLADOS ==========
 
 router.post(
   "/",
@@ -33,15 +96,8 @@ router.get(
   "/",
   authMiddleware,
   hasPermission("transfers.read"),
+  validate(getAllTransfersSchema),
   getAllTransfers
-);
-
-router.get(
-  "/by-warehouse",
-  authMiddleware,
-  hasPermission("transfers.read"),
-  validate(getTransfersByWarehouseSchema),
-  getTransfersByWarehouse
 );
 
 router.get(
@@ -67,12 +123,12 @@ router.post(
   rejectTransfer
 );
 
-router.get(
-  "/reports/rejected",
+router.post(
+  "/:id/cancel",
   authMiddleware,
-  hasPermission("transfers.read"),
-  validate(getRejectedTransfersReportSchema),
-  getRejectedTransfersReport
+  hasPermission("transfers.cancel"),
+  validate(cancelTransferSchema),
+  cancelTransfer
 );
 
 export default router;
