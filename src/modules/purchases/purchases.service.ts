@@ -320,7 +320,7 @@ export class PurchasesService {
         invoiceNumber: purchases.invoiceNumber,
         supplierName: purchases.supplierName,
         supplierPhone: purchases.supplierPhone,
-        date: purchases.date,
+        date: sql<string>`DATE_FORMAT(${purchases.date}, '%Y-%m-%d')`.as('date'),
         warehouseId: purchases.warehouseId,
         warehouseName: warehouses.name,
         currencyId: purchases.currencyId,

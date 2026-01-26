@@ -514,7 +514,7 @@ export class SalesService {
         invoiceNumber: sales.invoiceNumber,
         customerName: sales.customerName,
         customerPhone: sales.customerPhone,
-        date: sales.date,
+        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
         warehouseId: sales.warehouseId,
         warehouseName: warehouses.name,
         currencyId: sales.currencyId,
@@ -980,7 +980,7 @@ export class SalesService {
       .select({
         id: sales.id,
         invoiceNumber: sales.invoiceNumber,
-        date: sales.date,
+        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
         warehouseId: sales.warehouseId,
         warehouseName: warehouses.name,
         currencyId: sales.currencyId,
@@ -1234,7 +1234,7 @@ export class SalesService {
       .select({
         id: sales.id,
         invoiceNumber: sales.invoiceNumber,
-        date: sales.date,
+        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
         warehouseId: sales.warehouseId,
         warehouseName: warehouses.name,
         currencyId: sales.currencyId,
@@ -1776,7 +1776,7 @@ export class SalesService {
         invoiceNumber: sales.invoiceNumber,
         customerName: sales.customerName,
         customerPhone: sales.customerPhone,
-        date: sales.date,
+        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
         warehouseId: sales.warehouseId,
         warehouseName: warehouses.name,
         currencyId: sales.currencyId,
@@ -1859,7 +1859,7 @@ export class SalesService {
         total: sales.total,
         status: sales.status,
         isPaid: sales.isPaid,
-        date: sales.date,
+        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
       })
       .from(sales)
       .innerJoin(currencies, eq(sales.currencyId, currencies.id))

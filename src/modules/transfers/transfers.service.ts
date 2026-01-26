@@ -372,7 +372,7 @@ export class TransfersService {
       .select({
         id: transfers.id,
         transferNumber: transfers.transferNumber,
-        date: transfers.date,
+        date: sql<string>`DATE_FORMAT(${transfers.date}, '%Y-%m-%d')`.as('date'),
         originWarehouseId: transfers.originWarehouseId,
         originWarehouseName: originWarehouse.name,
         destinationWarehouseId: transfers.destinationWarehouseId,
@@ -412,7 +412,7 @@ export class TransfersService {
       .select({
         id: transfers.id,
         transferNumber: transfers.transferNumber,
-        date: transfers.date,
+        date: sql<string>`DATE_FORMAT(${transfers.date}, '%Y-%m-%d')`.as('date'),
         originWarehouseId: transfers.originWarehouseId,
         originWarehouseName: originWarehouse.name,
         destinationWarehouseId: transfers.destinationWarehouseId,
@@ -902,7 +902,7 @@ export class TransfersService {
       .select({
         id: transfers.id,
         transferNumber: transfers.transferNumber,
-        date: transfers.date,
+        date: sql<string>`DATE_FORMAT(${transfers.date}, '%Y-%m-%d')`.as('date'),
         originWarehouseId: transfers.originWarehouseId,
         originWarehouseName: originWarehouse.name,
         destinationWarehouseId: transfers.destinationWarehouseId,
@@ -945,7 +945,7 @@ export class TransfersService {
       .select({
         id: transfers.id,
         transferNumber: transfers.transferNumber,
-        date: transfers.date,
+        date: sql<string>`DATE_FORMAT(${transfers.date}, '%Y-%m-%d')`.as('date'),
         originWarehouseId: transfers.originWarehouseId,
         originWarehouseName: originWarehouse.name,
         destinationWarehouseId: transfers.destinationWarehouseId,
