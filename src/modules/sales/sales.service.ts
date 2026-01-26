@@ -833,8 +833,13 @@ export class SalesService {
 
       // Procesar la venta (consumir lotes y calcular costos)
       await this.processApprovedSale(sale, tx);
-
-      return { message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO." };
+    }).then(async () => {
+      // Retornar la venta completa actualizada (FUERA de la transacción)
+      const updatedSale = await this.getSaleById(id);
+      return {
+        message: "Factura de venta aceptada exitosamente. Lotes consumidos con FIFO.",
+        data: updatedSale
+      };
     });
   }
 
@@ -860,7 +865,12 @@ export class SalesService {
         })
         .where(eq(sales.id, id));
 
-      return { message: "Factura cancelada exitosamente" };
+      // Retornar la venta completa actualizada
+      const updatedSale = await this.getSaleById(id);
+      return {
+        message: "Factura cancelada exitosamente",
+        data: updatedSale
+      };
     }
 
     // Si estaba aprobada, ejecutar en transacción
@@ -928,8 +938,13 @@ export class SalesService {
           });
         }
       }
-
-      return { message: "Factura cancelada exitosamente" };
+    }).then(async () => {
+      // Retornar la venta completa actualizada (FUERA de la transacción)
+      const updatedSale = await this.getSaleById(id);
+      return {
+        message: "Factura cancelada exitosamente",
+        data: updatedSale
+      };
     });
   }
 

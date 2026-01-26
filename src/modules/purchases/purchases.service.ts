@@ -575,9 +575,14 @@ export class PurchasesService {
           lotId,
         });
       }
-
-      return { message: "Factura de compra aceptada exitosamente. Lotes creados." };
     });
+
+    // Retornar la factura completa actualizada (FUERA de la transacción)
+    const updatedPurchase = await this.getPurchaseById(id, userId);
+    return {
+      message: "Factura de compra aceptada exitosamente. Lotes creados.",
+      data: updatedPurchase
+    };
   }
 
   // Cancelar factura de compra (con transacción)
@@ -661,9 +666,14 @@ export class PurchasesService {
             cancelledAt: new Date(),
           })
           .where(eq(purchases.id, id));
-
-        return { message: "Factura cancelada exitosamente" };
       });
+
+      // Retornar la factura completa actualizada (FUERA de la transacción)
+      const updatedPurchase = await this.getPurchaseById(id, userId);
+      return {
+        message: "Factura cancelada exitosamente",
+        data: updatedPurchase
+      };
     }
 
     // Si estaba en PENDING, solo actualizar estado (sin transacción necesaria)
@@ -677,7 +687,12 @@ export class PurchasesService {
       })
       .where(eq(purchases.id, id));
 
-    return { message: "Factura cancelada exitosamente" };
+    // Retornar la factura completa actualizada
+    const updatedPurchase = await this.getPurchaseById(id, userId);
+    return {
+      message: "Factura cancelada exitosamente",
+      data: updatedPurchase
+    };
   }
 
   // Reporte de facturas canceladas
