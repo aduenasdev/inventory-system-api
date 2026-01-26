@@ -460,12 +460,15 @@ export class SalesService {
         }
       }
 
-      return { 
-        id: saleId, 
-        invoiceNumber, 
-        subtotal, 
-        total: subtotal,
-        status: canAutoApprove ? "APPROVED" : "PENDING"
+      return saleId;
+    }).then(async (saleId) => {
+      // Obtener la venta completa con todos los detalles para el frontend
+      const completeSale = await this.getSaleById(saleId);
+      return {
+        message: canAutoApprove 
+          ? "Venta creada y aprobada exitosamente" 
+          : "Venta creada exitosamente (pendiente de aprobación)",
+        data: completeSale
       };
     });
   }
@@ -1342,6 +1345,7 @@ export class SalesService {
         unitId: products.unitId,
         unitName: units.name,
         unitShortName: units.shortName,
+        unitType: units.type,
         categoryId: products.categoryId,
         categoryName: categories.name,
       })
