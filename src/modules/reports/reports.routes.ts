@@ -8,6 +8,8 @@ import {
   getLowStock,
   getMovementsReport,
   getKardex,
+  getProfitReport,
+  exportProfitReportCSV,
 } from "./reports.controller";
 import {
   getStockReportSchema,
@@ -15,6 +17,8 @@ import {
   getLowStockSchema,
   getMovementsReportSchema,
   getKardexSchema,
+  getProfitReportSchema,
+  exportProfitReportSchema,
 } from "./reports.schemas";
 
 const router = Router();
@@ -75,6 +79,30 @@ router.get(
   hasPermission("reports.movements.read"),
   validate(getKardexSchema),
   getKardex
+);
+
+// ========== REPORTE 6: UTILIDAD/GANANCIA ==========
+// GET /reports/profit - Estado de resultados (ingresos, costos, gastos, utilidad)
+// Parámetros: startDate (obligatorio), endDate (opcional)
+// Filtros: warehouseId (opcional), includeDetails (opcional)
+router.get(
+  "/profit",
+  authMiddleware,
+  hasPermission("reports.profit.read"),
+  validate(getProfitReportSchema),
+  getProfitReport
+);
+
+// ========== EXPORTAR REPORTE DE UTILIDAD ==========
+// GET /reports/profit/export - Exportar reporte de utilidad en CSV
+// Parámetros: startDate (obligatorio), endDate (opcional)
+// Filtros: warehouseId (opcional)
+router.get(
+  "/profit/export",
+  authMiddleware,
+  hasPermission("reports.profit.read"),
+  validate(exportProfitReportSchema),
+  exportProfitReportCSV
 );
 
 export default router;

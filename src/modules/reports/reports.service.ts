@@ -6,7 +6,14 @@ import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { categories } from "../../db/schema/categories";
 import { userWarehouses } from "../../db/schema/user_warehouses";
-import { eq, and, sql, desc, gte, lte, inArray, like } from "drizzle-orm";
+import { sales } from "../../db/schema/sales";
+import { salesDetail } from "../../db/schema/sales_detail";
+import { expenses } from "../../db/schema/expenses";
+import { expenseTypes } from "../../db/schema/expense_types";
+import { purchases } from "../../db/schema/purchases";
+import { purchasesDetail } from "../../db/schema/purchases_detail";
+import { transfers } from "../../db/schema/transfers";
+import { eq, and, sql, desc, gte, lte, inArray, like, asc, isNull } from "drizzle-orm";
 import { ForbiddenError, NotFoundError } from "../../utils/errors";
 
 const BASE_CURRENCY_ID = 1;
@@ -438,5 +445,551 @@ export class ReportsService {
         currency: "CUP",
       },
     };
+  }
+
+  // ========== REPORTE 6: UTILIDAD/GANANCIA ==========
+  async getProfitReport(
+    userId: number,
+    startDate: string,
+    endDate: string,
+    warehouseId?: number,
+    includeDetails?: boolean
+  ) {
+    // Obtener almacenes permitidos
+    const allowedWarehouses = await this.getUserWarehouses(userId);
+    if (allowedWarehouses.length === 0) {
+      return this.getEmptyProfitReport(startDate, endDate);
+    }
+
+    // Validar acceso si especifica almacén
+    if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
+      throw new ForbiddenError("No tienes acceso a este almacén");
+    }
+
+    const warehouseFilter = warehouseId 
+      ? [warehouseId] 
+      : allowedWarehouses;
+
+    // ========== 1. INGRESOS BRUTOS (Ventas APPROVED) ==========
+    const salesData = await db
+      .select({
+        warehouseId: sales.warehouseId,
+        warehouseName: warehouses.name,
+        productId: salesDetail.productId,
+        productName: products.name,
+        productCode: products.code,
+        categoryId: products.categoryId,
+        categoryName: categories.name,
+        quantity: salesDetail.quantity,
+        convertedUnitPrice: salesDetail.convertedUnitPrice,
+        realCost: salesDetail.realCost,
+        margin: salesDetail.margin,
+        saleDate: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('sale_date'),
+        saleMonth: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m')`.as('sale_month'),
+      })
+      .from(salesDetail)
+      .innerJoin(sales, eq(salesDetail.saleId, sales.id))
+      .innerJoin(products, eq(salesDetail.productId, products.id))
+      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(
+        and(
+          eq(sales.status, "APPROVED"),
+          gte(sales.date, sql`${startDate}`),
+          lte(sales.date, sql`${endDate}`),
+          inArray(sales.warehouseId, warehouseFilter)
+        )
+      );
+
+    // ========== 2. GASTOS OPERATIVOS (Expenses APPROVED) ==========
+    const expensesData = await db
+      .select({
+        expenseId: expenses.id,
+        expenseTypeId: expenses.expenseTypeId,
+        expenseTypeName: expenseTypes.name,
+        warehouseId: expenses.warehouseId,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as('warehouse_name'),
+        amountBase: expenses.amountBase,
+        expenseDate: sql<string>`DATE_FORMAT(${expenses.date}, '%Y-%m-%d')`.as('expense_date'),
+        expenseMonth: sql<string>`DATE_FORMAT(${expenses.date}, '%Y-%m')`.as('expense_month'),
+        description: expenses.description,
+      })
+      .from(expenses)
+      .innerJoin(expenseTypes, eq(expenses.expenseTypeId, expenseTypes.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .where(
+        and(
+          eq(expenses.status, "APPROVED"),
+          gte(expenses.date, sql`${startDate}`),
+          lte(expenses.date, sql`${endDate}`),
+          warehouseId 
+            ? eq(expenses.warehouseId, warehouseId)
+            : sql`(${expenses.warehouseId} IN (${sql.raw(warehouseFilter.join(','))}) OR ${expenses.warehouseId} IS NULL)`
+        )
+      );
+
+    // ========== 3. COMPRAS DEL PERÍODO (referencia) ==========
+    const purchasesData = await db
+      .select({
+        totalAmount: sql<string>`SUM(${purchasesDetail.convertedUnitCost} * ${purchasesDetail.quantity})`.as('total_amount'),
+        count: sql<number>`COUNT(DISTINCT ${purchases.id})`.as('count'),
+      })
+      .from(purchasesDetail)
+      .innerJoin(purchases, eq(purchasesDetail.purchaseId, purchases.id))
+      .where(
+        and(
+          eq(purchases.status, "APPROVED"),
+          gte(purchases.date, sql`${startDate}`),
+          lte(purchases.date, sql`${endDate}`),
+          inArray(purchases.warehouseId, warehouseFilter)
+        )
+      );
+
+    // ========== 4. TRASLADOS DEL PERÍODO (referencia) ==========
+    const transfersData = await db
+      .select({
+        count: sql<number>`COUNT(*)`.as('count'),
+      })
+      .from(transfers)
+      .where(
+        and(
+          eq(transfers.status, "APPROVED"),
+          gte(transfers.date, sql`${startDate}`),
+          lte(transfers.date, sql`${endDate}`),
+          sql`(${transfers.originWarehouseId} IN (${sql.raw(warehouseFilter.join(','))}) OR ${transfers.destinationWarehouseId} IN (${sql.raw(warehouseFilter.join(','))}))`
+        )
+      );
+
+    // ========== CALCULAR TOTALES ==========
+    let grossRevenue = 0;
+    let costOfGoodsSold = 0;
+    let totalUnits = 0;
+
+    salesData.forEach((sale) => {
+      const qty = parseFloat(sale.quantity || "0");
+      const price = parseFloat(sale.convertedUnitPrice || "0");
+      const cost = parseFloat(sale.realCost || "0");
+      
+      grossRevenue += qty * price;
+      costOfGoodsSold += cost;
+      totalUnits += qty;
+    });
+
+    const grossProfit = grossRevenue - costOfGoodsSold;
+    const grossMarginPercent = grossRevenue > 0 ? (grossProfit / grossRevenue) * 100 : 0;
+
+    let operatingExpenses = 0;
+    expensesData.forEach((expense) => {
+      operatingExpenses += parseFloat(expense.amountBase || "0");
+    });
+
+    const operatingProfit = grossProfit - operatingExpenses;
+    const operatingMarginPercent = grossRevenue > 0 ? (operatingProfit / grossRevenue) * 100 : 0;
+
+    const purchasesTotal = parseFloat(purchasesData[0]?.totalAmount || "0");
+    const purchasesCount = purchasesData[0]?.count || 0;
+    const transfersCount = transfersData[0]?.count || 0;
+
+    // ========== AGRUPAR POR ALMACÉN ==========
+    const byWarehouseMap = new Map<number | null, {
+      warehouseId: number | null;
+      warehouseName: string;
+      grossRevenue: number;
+      costOfGoodsSold: number;
+      grossProfit: number;
+      operatingExpenses: number;
+      unitsSold: number;
+    }>();
+
+    // Procesar ventas por almacén
+    salesData.forEach((sale) => {
+      const wId = sale.warehouseId;
+      const current = byWarehouseMap.get(wId) || {
+        warehouseId: wId,
+        warehouseName: sale.warehouseName,
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        operatingExpenses: 0,
+        unitsSold: 0,
+      };
+
+      const qty = parseFloat(sale.quantity || "0");
+      const price = parseFloat(sale.convertedUnitPrice || "0");
+      const cost = parseFloat(sale.realCost || "0");
+      
+      current.grossRevenue += qty * price;
+      current.costOfGoodsSold += cost;
+      current.unitsSold += qty;
+      current.grossProfit = current.grossRevenue - current.costOfGoodsSold;
+
+      byWarehouseMap.set(wId, current);
+    });
+
+    // Procesar gastos por almacén
+    expensesData.forEach((expense) => {
+      const wId = expense.warehouseId;
+      const current = byWarehouseMap.get(wId) || {
+        warehouseId: wId,
+        warehouseName: expense.warehouseName,
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        operatingExpenses: 0,
+        unitsSold: 0,
+      };
+
+      current.operatingExpenses += parseFloat(expense.amountBase || "0");
+      byWarehouseMap.set(wId, current);
+    });
+
+    const byWarehouse = Array.from(byWarehouseMap.values()).map((w) => ({
+      warehouseId: w.warehouseId,
+      warehouseName: w.warehouseName,
+      grossRevenue: parseFloat(w.grossRevenue.toFixed(2)),
+      costOfGoodsSold: parseFloat(w.costOfGoodsSold.toFixed(2)),
+      grossProfit: parseFloat(w.grossProfit.toFixed(2)),
+      grossMarginPercent: w.grossRevenue > 0 ? parseFloat(((w.grossProfit / w.grossRevenue) * 100).toFixed(2)) : 0,
+      operatingExpenses: parseFloat(w.operatingExpenses.toFixed(2)),
+      operatingProfit: parseFloat((w.grossProfit - w.operatingExpenses).toFixed(2)),
+      unitsSold: parseFloat(w.unitsSold.toFixed(2)),
+    }));
+
+    // ========== AGRUPAR POR MES ==========
+    const byMonthMap = new Map<string, {
+      month: string;
+      grossRevenue: number;
+      costOfGoodsSold: number;
+      grossProfit: number;
+      operatingExpenses: number;
+      unitsSold: number;
+    }>();
+
+    salesData.forEach((sale) => {
+      const month = sale.saleMonth;
+      const current = byMonthMap.get(month) || {
+        month,
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        operatingExpenses: 0,
+        unitsSold: 0,
+      };
+
+      const qty = parseFloat(sale.quantity || "0");
+      const price = parseFloat(sale.convertedUnitPrice || "0");
+      const cost = parseFloat(sale.realCost || "0");
+      
+      current.grossRevenue += qty * price;
+      current.costOfGoodsSold += cost;
+      current.unitsSold += qty;
+      current.grossProfit = current.grossRevenue - current.costOfGoodsSold;
+
+      byMonthMap.set(month, current);
+    });
+
+    expensesData.forEach((expense) => {
+      const month = expense.expenseMonth;
+      const current = byMonthMap.get(month) || {
+        month,
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        operatingExpenses: 0,
+        unitsSold: 0,
+      };
+
+      current.operatingExpenses += parseFloat(expense.amountBase || "0");
+      byMonthMap.set(month, current);
+    });
+
+    const byMonth = Array.from(byMonthMap.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((m) => ({
+        month: m.month,
+        grossRevenue: parseFloat(m.grossRevenue.toFixed(2)),
+        costOfGoodsSold: parseFloat(m.costOfGoodsSold.toFixed(2)),
+        grossProfit: parseFloat(m.grossProfit.toFixed(2)),
+        grossMarginPercent: m.grossRevenue > 0 ? parseFloat(((m.grossProfit / m.grossRevenue) * 100).toFixed(2)) : 0,
+        operatingExpenses: parseFloat(m.operatingExpenses.toFixed(2)),
+        operatingProfit: parseFloat((m.grossProfit - m.operatingExpenses).toFixed(2)),
+        unitsSold: parseFloat(m.unitsSold.toFixed(2)),
+      }));
+
+    // ========== AGRUPAR POR CATEGORÍA ==========
+    const byCategoryMap = new Map<number | null, {
+      categoryId: number | null;
+      categoryName: string;
+      grossRevenue: number;
+      costOfGoodsSold: number;
+      grossProfit: number;
+      unitsSold: number;
+    }>();
+
+    salesData.forEach((sale) => {
+      const catId = sale.categoryId;
+      const current = byCategoryMap.get(catId) || {
+        categoryId: catId,
+        categoryName: sale.categoryName || "Sin Categoría",
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        unitsSold: 0,
+      };
+
+      const qty = parseFloat(sale.quantity || "0");
+      const price = parseFloat(sale.convertedUnitPrice || "0");
+      const cost = parseFloat(sale.realCost || "0");
+      
+      current.grossRevenue += qty * price;
+      current.costOfGoodsSold += cost;
+      current.unitsSold += qty;
+      current.grossProfit = current.grossRevenue - current.costOfGoodsSold;
+
+      byCategoryMap.set(catId, current);
+    });
+
+    const byCategory = Array.from(byCategoryMap.values())
+      .sort((a, b) => b.grossProfit - a.grossProfit)
+      .map((c) => ({
+        categoryId: c.categoryId,
+        categoryName: c.categoryName,
+        grossRevenue: parseFloat(c.grossRevenue.toFixed(2)),
+        costOfGoodsSold: parseFloat(c.costOfGoodsSold.toFixed(2)),
+        grossProfit: parseFloat(c.grossProfit.toFixed(2)),
+        grossMarginPercent: c.grossRevenue > 0 ? parseFloat(((c.grossProfit / c.grossRevenue) * 100).toFixed(2)) : 0,
+        unitsSold: parseFloat(c.unitsSold.toFixed(2)),
+      }));
+
+    // ========== GASTOS POR TIPO ==========
+    const expensesByTypeMap = new Map<number, {
+      expenseTypeId: number;
+      expenseTypeName: string;
+      totalAmount: number;
+      count: number;
+    }>();
+
+    expensesData.forEach((expense) => {
+      const typeId = expense.expenseTypeId;
+      const current = expensesByTypeMap.get(typeId) || {
+        expenseTypeId: typeId,
+        expenseTypeName: expense.expenseTypeName,
+        totalAmount: 0,
+        count: 0,
+      };
+
+      current.totalAmount += parseFloat(expense.amountBase || "0");
+      current.count++;
+      expensesByTypeMap.set(typeId, current);
+    });
+
+    const expensesByType = Array.from(expensesByTypeMap.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .map((e) => ({
+        expenseTypeId: e.expenseTypeId,
+        expenseTypeName: e.expenseTypeName,
+        totalAmount: parseFloat(e.totalAmount.toFixed(2)),
+        count: e.count,
+        percentOfTotal: operatingExpenses > 0 ? parseFloat(((e.totalAmount / operatingExpenses) * 100).toFixed(2)) : 0,
+      }));
+
+    // ========== TOP PRODUCTOS (más rentables) ==========
+    const productProfitMap = new Map<number, {
+      productId: number;
+      productName: string;
+      productCode: string;
+      categoryName: string;
+      unitsSold: number;
+      revenue: number;
+      cost: number;
+      profit: number;
+    }>();
+
+    salesData.forEach((sale) => {
+      const pId = sale.productId;
+      const current = productProfitMap.get(pId) || {
+        productId: pId,
+        productName: sale.productName,
+        productCode: sale.productCode,
+        categoryName: sale.categoryName || "Sin Categoría",
+        unitsSold: 0,
+        revenue: 0,
+        cost: 0,
+        profit: 0,
+      };
+
+      const qty = parseFloat(sale.quantity || "0");
+      const price = parseFloat(sale.convertedUnitPrice || "0");
+      const cost = parseFloat(sale.realCost || "0");
+      
+      current.unitsSold += qty;
+      current.revenue += qty * price;
+      current.cost += cost;
+      current.profit = current.revenue - current.cost;
+
+      productProfitMap.set(pId, current);
+    });
+
+    const topProducts = Array.from(productProfitMap.values())
+      .sort((a, b) => b.profit - a.profit)
+      .slice(0, 10)
+      .map((p) => ({
+        productId: p.productId,
+        productName: p.productName,
+        productCode: p.productCode,
+        categoryName: p.categoryName,
+        unitsSold: parseFloat(p.unitsSold.toFixed(2)),
+        revenue: parseFloat(p.revenue.toFixed(2)),
+        cost: parseFloat(p.cost.toFixed(2)),
+        profit: parseFloat(p.profit.toFixed(2)),
+        marginPercent: p.revenue > 0 ? parseFloat(((p.profit / p.revenue) * 100).toFixed(2)) : 0,
+      }));
+
+    // ========== PRODUCTO DETALLADO (si se solicita) ==========
+    let productDetails: any[] | undefined;
+    if (includeDetails) {
+      productDetails = Array.from(productProfitMap.values())
+        .sort((a, b) => b.profit - a.profit)
+        .map((p) => ({
+          productId: p.productId,
+          productName: p.productName,
+          productCode: p.productCode,
+          categoryName: p.categoryName,
+          unitsSold: parseFloat(p.unitsSold.toFixed(2)),
+          revenue: parseFloat(p.revenue.toFixed(2)),
+          cost: parseFloat(p.cost.toFixed(2)),
+          profit: parseFloat(p.profit.toFixed(2)),
+          marginPercent: p.revenue > 0 ? parseFloat(((p.profit / p.revenue) * 100).toFixed(2)) : 0,
+        }));
+    }
+
+    return {
+      period: {
+        startDate,
+        endDate,
+      },
+      summary: {
+        grossRevenue: parseFloat(grossRevenue.toFixed(2)),
+        costOfGoodsSold: parseFloat(costOfGoodsSold.toFixed(2)),
+        grossProfit: parseFloat(grossProfit.toFixed(2)),
+        grossMarginPercent: parseFloat(grossMarginPercent.toFixed(2)),
+        operatingExpenses: parseFloat(operatingExpenses.toFixed(2)),
+        operatingProfit: parseFloat(operatingProfit.toFixed(2)),
+        operatingMarginPercent: parseFloat(operatingMarginPercent.toFixed(2)),
+        totalUnitsSold: parseFloat(totalUnits.toFixed(2)),
+        purchasesTotal: parseFloat(purchasesTotal.toFixed(2)),
+        purchasesCount,
+        transfersCount,
+        currency: "CUP",
+      },
+      byWarehouse,
+      byMonth,
+      byCategory,
+      expensesByType,
+      topProducts,
+      ...(productDetails && { productDetails }),
+    };
+  }
+
+  // Reporte vacío
+  private getEmptyProfitReport(startDate: string, endDate: string) {
+    return {
+      period: { startDate, endDate },
+      summary: {
+        grossRevenue: 0,
+        costOfGoodsSold: 0,
+        grossProfit: 0,
+        grossMarginPercent: 0,
+        operatingExpenses: 0,
+        operatingProfit: 0,
+        operatingMarginPercent: 0,
+        totalUnitsSold: 0,
+        purchasesTotal: 0,
+        purchasesCount: 0,
+        transfersCount: 0,
+        currency: "CUP",
+      },
+      byWarehouse: [],
+      byMonth: [],
+      byCategory: [],
+      expensesByType: [],
+      topProducts: [],
+    };
+  }
+
+  // ========== EXPORTAR REPORTE DE UTILIDAD A CSV ==========
+  async exportProfitReportCSV(
+    userId: number,
+    startDate: string,
+    endDate: string,
+    warehouseId?: number
+  ): Promise<string> {
+    const report = await this.getProfitReport(userId, startDate, endDate, warehouseId, true);
+
+    const lines: string[] = [];
+
+    // Encabezado
+    lines.push("REPORTE DE UTILIDAD");
+    lines.push(`Período: ${startDate} a ${endDate}`);
+    lines.push(`Generado: ${new Date().toISOString()}`);
+    lines.push("");
+
+    // Resumen
+    lines.push("=== RESUMEN ===");
+    lines.push(`Ingresos Brutos (CUP),${report.summary.grossRevenue}`);
+    lines.push(`Costo de Ventas (CUP),${report.summary.costOfGoodsSold}`);
+    lines.push(`Utilidad Bruta (CUP),${report.summary.grossProfit}`);
+    lines.push(`Margen Bruto (%),${report.summary.grossMarginPercent}`);
+    lines.push(`Gastos Operativos (CUP),${report.summary.operatingExpenses}`);
+    lines.push(`Utilidad Operativa (CUP),${report.summary.operatingProfit}`);
+    lines.push(`Margen Operativo (%),${report.summary.operatingMarginPercent}`);
+    lines.push(`Unidades Vendidas,${report.summary.totalUnitsSold}`);
+    lines.push(`Total Compras (CUP),${report.summary.purchasesTotal}`);
+    lines.push(`Cantidad de Compras,${report.summary.purchasesCount}`);
+    lines.push(`Cantidad de Traslados,${report.summary.transfersCount}`);
+    lines.push("");
+
+    // Por Almacén
+    lines.push("=== POR ALMACÉN ===");
+    lines.push("Almacén,Ingresos,Costo Ventas,Utilidad Bruta,Margen %,Gastos,Utilidad Operativa");
+    report.byWarehouse.forEach((w) => {
+      lines.push(`${w.warehouseName},${w.grossRevenue},${w.costOfGoodsSold},${w.grossProfit},${w.grossMarginPercent},${w.operatingExpenses},${w.operatingProfit}`);
+    });
+    lines.push("");
+
+    // Por Mes
+    lines.push("=== POR MES ===");
+    lines.push("Mes,Ingresos,Costo Ventas,Utilidad Bruta,Margen %,Gastos,Utilidad Operativa");
+    report.byMonth.forEach((m) => {
+      lines.push(`${m.month},${m.grossRevenue},${m.costOfGoodsSold},${m.grossProfit},${m.grossMarginPercent},${m.operatingExpenses},${m.operatingProfit}`);
+    });
+    lines.push("");
+
+    // Por Categoría
+    lines.push("=== POR CATEGORÍA ===");
+    lines.push("Categoría,Ingresos,Costo Ventas,Utilidad Bruta,Margen %,Unidades");
+    report.byCategory.forEach((c) => {
+      lines.push(`${c.categoryName},${c.grossRevenue},${c.costOfGoodsSold},${c.grossProfit},${c.grossMarginPercent},${c.unitsSold}`);
+    });
+    lines.push("");
+
+    // Gastos por Tipo
+    lines.push("=== GASTOS POR TIPO ===");
+    lines.push("Tipo de Gasto,Monto Total,Cantidad,% del Total");
+    report.expensesByType.forEach((e) => {
+      lines.push(`${e.expenseTypeName},${e.totalAmount},${e.count},${e.percentOfTotal}`);
+    });
+    lines.push("");
+
+    // Productos Detallados
+    if ('productDetails' in report && report.productDetails) {
+      lines.push("=== DETALLE POR PRODUCTO ===");
+      lines.push("Código,Producto,Categoría,Unidades,Ingresos,Costo,Utilidad,Margen %");
+      (report.productDetails as any[]).forEach((p: any) => {
+        lines.push(`${p.productCode},${p.productName},${p.categoryName},${p.unitsSold},${p.revenue},${p.cost},${p.profit},${p.marginPercent}`);
+      });
+    }
+
+    return lines.join("\n");
   }
 }

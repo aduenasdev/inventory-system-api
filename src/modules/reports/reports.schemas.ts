@@ -46,3 +46,22 @@ export const getKardexSchema = z.object({
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
   }),
 });
+
+// ========== PROFIT REPORT (UTILIDAD) ==========
+export const getProfitReportSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+    warehouseId: z.string().transform(Number).optional(),
+    includeDetails: z.string().transform((val) => val === "true").optional(),
+  }),
+});
+
+// ========== EXPORT PROFIT REPORT ==========
+export const exportProfitReportSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
+    warehouseId: z.string().transform(Number).optional(),
+  }),
+});

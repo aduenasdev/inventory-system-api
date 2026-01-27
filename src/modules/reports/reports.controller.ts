@@ -126,3 +126,57 @@ export const getKardex = async (req: Request, res: Response) => {
     res.status(status).json({ error: error.message });
   }
 };
+
+// Profit Report (Utilidad)
+export const getProfitReport = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const { startDate, endDate, warehouseId, includeDetails } = req.query as {
+      startDate: string;
+      endDate?: string;
+      warehouseId?: string;
+      includeDetails?: string;
+    };
+
+    const result = await reportsService.getProfitReport(
+      userId,
+      startDate,
+      endDate || startDate,
+      warehouseId ? Number(warehouseId) : undefined,
+      includeDetails === "true"
+    );
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error.name === "ForbiddenError" ? 403 : error.name === "NotFoundError" ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message });
+  }
+};
+
+// Export Profit Report CSV
+export const exportProfitReportCSV = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const { startDate, endDate, warehouseId } = req.query as {
+      startDate: string;
+      endDate?: string;
+      warehouseId?: string;
+    };
+
+    const csv = await reportsService.exportProfitReportCSV(
+      userId,
+      startDate,
+      endDate || startDate,
+      warehouseId ? Number(warehouseId) : undefined
+    );
+
+    const filename = `profit_report_${startDate}_${endDate || startDate}.csv`;
+    
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error: any) {
+    const status = error.name === "ForbiddenError" ? 403 : error.name === "NotFoundError" ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message });
+  }
+};

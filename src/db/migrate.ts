@@ -712,6 +712,7 @@ async function main() {
     { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
     { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
     { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
+    { name: 'reports.profit.read', description: 'Ver reporte de utilidad/ganancia', group_name: 'reports' },
 
     // CRUD tipos de ajuste
     { name: 'adjustment_types.read', description: 'Leer tipos de ajuste', group_name: 'adjustment_types' },
