@@ -386,9 +386,11 @@ export class LotService {
 
   /**
    * Verificar si un lote tiene consumos (para bloquear cancelaciones)
+   * @param tx - Transacción opcional para garantizar consistencia
    */
-  async hasConsumptions(lotId: number): Promise<boolean> {
-    const consumptions = await db
+  async hasConsumptions(lotId: number, tx?: any): Promise<boolean> {
+    const database = tx || db;
+    const consumptions = await database
       .select({ id: lotConsumptions.id })
       .from(lotConsumptions)
       .where(eq(lotConsumptions.lotId, lotId))

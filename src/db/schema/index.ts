@@ -22,6 +22,9 @@ import { transfers } from "./transfers";
 import { transfersDetail } from "./transfers_detail";
 import { inventoryLots } from "./inventory_lots";
 import { lotConsumptions } from "./lot_consumptions";
+import { adjustmentTypes } from "./adjustment_types";
+import { adjustments } from "./adjustments";
+import { adjustmentsDetail } from "./adjustments_detail";
 
 export const schemas = {
   users,
@@ -48,4 +51,7 @@ export const schemas = {
   transfersDetail,
   inventoryLots,
   lotConsumptions,
+  adjustmentTypes,
+  adjustments,
+  adjustmentsDetail,
 };

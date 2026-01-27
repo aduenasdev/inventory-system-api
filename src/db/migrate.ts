@@ -470,6 +470,74 @@ async function main() {
     )
   `);
 
+  console.log("✅ Tablas de traslados creadas.");
+
+  // ═══════════════════════════════════════════════════════════════
+  // TIPOS DE AJUSTE Y AJUSTES
+  // ═══════════════════════════════════════════════════════════════
+
+  await db.execute(sql`
+    CREATE TABLE adjustment_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      affects_positively BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE adjustments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      adjustment_number VARCHAR(20) NOT NULL UNIQUE,
+      adjustment_type_id INT NOT NULL,
+      warehouse_id INT NOT NULL,
+      date DATE NOT NULL,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+      reason TEXT,
+      cancellation_reason TEXT,
+      created_by INT NOT NULL,
+      accepted_by INT,
+      cancelled_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+      accepted_at TIMESTAMP NULL,
+      cancelled_at TIMESTAMP NULL,
+      FOREIGN KEY (adjustment_type_id) REFERENCES adjustment_types(id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (cancelled_by) REFERENCES users(id),
+      INDEX idx_adjustment_warehouse (warehouse_id),
+      INDEX idx_adjustment_type (adjustment_type_id),
+      INDEX idx_adjustment_status (status),
+      INDEX idx_adjustment_date (date)
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE adjustments_detail (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      adjustment_id INT NOT NULL,
+      product_id INT NOT NULL,
+      quantity DECIMAL(18, 2) NOT NULL,
+      currency_id INT,
+      unit_cost DECIMAL(18, 2),
+      exchange_rate DECIMAL(18, 2),
+      unit_cost_base DECIMAL(18, 2),
+      lot_id INT,
+      FOREIGN KEY (adjustment_id) REFERENCES adjustments(id),
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (lot_id) REFERENCES inventory_lots(id),
+      INDEX idx_adjustment_detail_adjustment (adjustment_id),
+      INDEX idx_adjustment_detail_product (product_id)
+    )
+  `);
+
+  console.log("✅ Tablas de ajustes creadas.");
+
   console.log("✅ Todas las tablas creadas exitosamente.");
 
   // ═══════════════════════════════════════════════════════════════
@@ -587,6 +655,18 @@ async function main() {
     { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
     { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
     { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
+
+    // CRUD tipos de ajuste
+    { name: 'adjustment_types.read', description: 'Leer tipos de ajuste', group_name: 'adjustment_types' },
+    { name: 'adjustment_types.create', description: 'Crear tipos de ajuste', group_name: 'adjustment_types' },
+    { name: 'adjustment_types.update', description: 'Actualizar tipos de ajuste', group_name: 'adjustment_types' },
+    { name: 'adjustment_types.delete', description: 'Eliminar tipos de ajuste', group_name: 'adjustment_types' },
+
+    // Ajustes de inventario
+    { name: 'adjustments.read', description: 'Leer ajustes de inventario', group_name: 'adjustments' },
+    { name: 'adjustments.create', description: 'Crear ajustes de inventario', group_name: 'adjustments' },
+    { name: 'adjustments.accept', description: 'Aprobar ajustes de inventario', group_name: 'adjustments' },
+    { name: 'adjustments.cancel', description: 'Cancelar ajustes de inventario propios', group_name: 'adjustments' },
   ];
 
   for (const p of fixedPermissions) {
@@ -644,6 +724,25 @@ async function main() {
       VALUES (${payment.type}, ${payment.description}, TRUE)`);
   }
   console.log("Tipos de pago comunes creados.");
+
+  // Seed de tipos de ajuste comunes
+  const commonAdjustmentTypes = [
+    { name: 'Inventario Físico', description: 'Ajuste por conteo físico de inventario', affects_positively: true },
+    { name: 'Merma', description: 'Pérdida natural del producto', affects_positively: false },
+    { name: 'Rotura', description: 'Productos dañados o rotos', affects_positively: false },
+    { name: 'Vencimiento', description: 'Productos vencidos o caducados', affects_positively: false },
+    { name: 'Donación', description: 'Salida por donación', affects_positively: false },
+    { name: 'Hurto', description: 'Pérdida por robo o hurto', affects_positively: false },
+    { name: 'Entrada inicial', description: 'Carga inicial de inventario', affects_positively: true },
+    { name: 'Devolución de proveedor', description: 'Producto devuelto al proveedor', affects_positively: false },
+    { name: 'Bonificación recibida', description: 'Producto recibido sin costo', affects_positively: true },
+  ];
+
+  for (const adjustmentType of commonAdjustmentTypes) {
+    await db.execute(sql`INSERT INTO adjustment_types (name, description, affects_positively) 
+      VALUES (${adjustmentType.name}, ${adjustmentType.description}, ${adjustmentType.affects_positively})`);
+  }
+  console.log("Tipos de ajuste comunes creados.");
 
   console.log("\n✅ Migración completada exitosamente!");
   console.log("📊 Base de datos creada con sistema de inventario por lotes.");
