@@ -74,3 +74,13 @@ export const checkExchangeRatesSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido, use YYYY-MM-DD").optional(),
   }),
 });
+
+// Schema para reporte de compras
+export const getPurchasesReportSchema = z.object({
+  query: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido"),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido"),
+    warehouseId: z.string().transform(Number).optional(),
+    limit: z.string().transform(Number).optional(),
+  }),
+});

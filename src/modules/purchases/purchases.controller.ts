@@ -177,3 +177,23 @@ export const getUnits = async (req: Request, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+// Reporte de compras
+export const getPurchasesReport = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const { startDate, endDate, warehouseId, limit } = req.query;
+
+    const report = await purchasesService.getPurchasesReport(
+      userId,
+      startDate as string,
+      endDate as string,
+      warehouseId ? Number(warehouseId) : undefined,
+      limit ? Number(limit) : 10
+    );
+
+    res.json(report);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};

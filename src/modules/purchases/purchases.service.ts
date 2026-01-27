@@ -929,4 +929,168 @@ export class PurchasesService {
       .where(eq(units.isActive, true))
       .orderBy(units.name);
   }
+
+  // ========== REPORTE DE COMPRAS ==========
+  async getPurchasesReport(
+    userId: number,
+    startDate: string,
+    endDate: string,
+    warehouseId?: number,
+    limit: number = 10
+  ) {
+    // Obtener almacenes del usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const assignedWarehouseIds = userWarehousesData.map((uw) => uw.warehouseId);
+
+    if (assignedWarehouseIds.length === 0) {
+      return {
+        period: { startDate, endDate },
+        totals: { approved: 0, pending: 0, cancelled: 0 },
+        byWarehouse: [],
+        bySupplier: [],
+        byMonth: [],
+        topProducts: [],
+      };
+    }
+
+    // Condiciones base
+    const baseConditions: any[] = [
+      gte(purchases.date, sql`${startDate}`),
+      lte(purchases.date, sql`${endDate}`),
+      inArray(purchases.warehouseId, assignedWarehouseIds),
+    ];
+
+    if (warehouseId) {
+      if (!assignedWarehouseIds.includes(warehouseId)) {
+        return {
+          period: { startDate, endDate },
+          totals: { approved: 0, pending: 0, cancelled: 0 },
+          byWarehouse: [],
+          bySupplier: [],
+          byMonth: [],
+          topProducts: [],
+        };
+      }
+      baseConditions.push(eq(purchases.warehouseId, warehouseId));
+    }
+
+    // 1. Totales por estado
+    const totalsResult = await db
+      .select({
+        status: purchases.status,
+        total: sql<string>`COALESCE(SUM(${purchases.total}), 0)`.as("total"),
+        count: sql<number>`COUNT(*)`.as("count"),
+      })
+      .from(purchases)
+      .where(and(...baseConditions))
+      .groupBy(purchases.status);
+
+    const totals = {
+      approved: 0,
+      approvedCount: 0,
+      pending: 0,
+      pendingCount: 0,
+      cancelled: 0,
+      cancelledCount: 0,
+    };
+
+    totalsResult.forEach((row) => {
+      if (row.status === "APPROVED") {
+        totals.approved = parseFloat(row.total);
+        totals.approvedCount = row.count;
+      } else if (row.status === "PENDING") {
+        totals.pending = parseFloat(row.total);
+        totals.pendingCount = row.count;
+      } else if (row.status === "CANCELLED") {
+        totals.cancelled = parseFloat(row.total);
+        totals.cancelledCount = row.count;
+      }
+    });
+
+    // Condiciones solo aprobados
+    const approvedConditions = [...baseConditions, eq(purchases.status, "APPROVED")];
+
+    // 2. Por almacén (solo aprobados)
+    const byWarehouse = await db
+      .select({
+        warehouseId: purchases.warehouseId,
+        warehouseName: warehouses.name,
+        total: sql<string>`SUM(${purchases.total})`.as("total"),
+        count: sql<number>`COUNT(*)`.as("count"),
+      })
+      .from(purchases)
+      .innerJoin(warehouses, eq(purchases.warehouseId, warehouses.id))
+      .where(and(...approvedConditions))
+      .groupBy(purchases.warehouseId, warehouses.name)
+      .orderBy(desc(sql`total`));
+
+    // 3. Por proveedor (solo aprobados, top 10)
+    const bySupplier = await db
+      .select({
+        supplierName: sql<string>`COALESCE(${purchases.supplierName}, 'Sin proveedor')`.as("supplier_name"),
+        total: sql<string>`SUM(${purchases.total})`.as("total"),
+        count: sql<number>`COUNT(*)`.as("count"),
+      })
+      .from(purchases)
+      .where(and(...approvedConditions))
+      .groupBy(purchases.supplierName)
+      .orderBy(desc(sql`total`))
+      .limit(10);
+
+    // 4. Por mes (solo aprobados)
+    const byMonth = await db
+      .select({
+        month: sql<string>`DATE_FORMAT(${purchases.date}, '%Y-%m')`.as("month"),
+        total: sql<string>`SUM(${purchases.total})`.as("total"),
+        count: sql<number>`COUNT(*)`.as("count"),
+      })
+      .from(purchases)
+      .where(and(...approvedConditions))
+      .groupBy(sql`DATE_FORMAT(${purchases.date}, '%Y-%m')`)
+      .orderBy(sql`month`);
+
+    // 5. Top productos comprados (solo aprobados)
+    const topProducts = await db
+      .select({
+        productId: purchasesDetail.productId,
+        productName: products.name,
+        productCode: products.code,
+        totalQuantity: sql<string>`SUM(${purchasesDetail.quantity})`.as("total_quantity"),
+        totalValue: sql<string>`SUM(${purchasesDetail.subtotal})`.as("total_value"),
+        purchaseCount: sql<number>`COUNT(DISTINCT ${purchases.id})`.as("purchase_count"),
+      })
+      .from(purchasesDetail)
+      .innerJoin(purchases, eq(purchasesDetail.purchaseId, purchases.id))
+      .innerJoin(products, eq(purchasesDetail.productId, products.id))
+      .where(and(...approvedConditions))
+      .groupBy(purchasesDetail.productId, products.name, products.code)
+      .orderBy(desc(sql`total_value`))
+      .limit(limit);
+
+    return {
+      period: { startDate, endDate },
+      totals,
+      byWarehouse: byWarehouse.map((w) => ({
+        ...w,
+        total: parseFloat(w.total),
+      })),
+      bySupplier: bySupplier.map((s) => ({
+        ...s,
+        total: parseFloat(s.total),
+      })),
+      byMonth: byMonth.map((m) => ({
+        ...m,
+        total: parseFloat(m.total),
+      })),
+      topProducts: topProducts.map((p) => ({
+        ...p,
+        totalQuantity: parseFloat(p.totalQuantity),
+        totalValue: parseFloat(p.totalValue),
+      })),
+    };
+  }
 }

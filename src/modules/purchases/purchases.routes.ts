@@ -9,6 +9,7 @@ import {
   acceptPurchase,
   cancelPurchase,
   getCancelledPurchasesReport,
+  getPurchasesReport,
   getUserWarehouses,
   getProducts,
   getCurrencies,
@@ -22,6 +23,7 @@ import {
   acceptPurchaseSchema,
   cancelPurchaseSchema,
   getCancelledPurchasesReportSchema,
+  getPurchasesReportSchema,
   getAllPurchasesSchema,
   getProductsSchema,
   checkExchangeRatesSchema,
@@ -105,6 +107,15 @@ router.get(
   hasPermission("purchases.read"),
   validate(getCancelledPurchasesReportSchema),
   getCancelledPurchasesReport
+);
+
+// GET /purchases/report - Reporte completo de compras
+router.get(
+  "/report",
+  authMiddleware,
+  hasPermission("purchases.read"),
+  validate(getPurchasesReportSchema),
+  getPurchasesReport
 );
 
 // GET /purchases/:id - Obtener una compra por ID
