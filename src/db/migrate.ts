@@ -538,6 +538,63 @@ async function main() {
 
   console.log("✅ Tablas de ajustes creadas.");
 
+  // ═══════════════════════════════════════════════════════════════
+  // TIPOS DE GASTOS
+  // ═══════════════════════════════════════════════════════════════
+
+  await db.execute(sql`
+    CREATE TABLE expense_types (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL
+    )
+  `);
+
+  console.log("✅ Tabla de tipos de gastos creada.");
+
+  // ═══════════════════════════════════════════════════════════════
+  // GASTOS
+  // ═══════════════════════════════════════════════════════════════
+
+  await db.execute(sql`
+    CREATE TABLE expenses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      expense_number VARCHAR(20) NOT NULL UNIQUE,
+      expense_type_id INT NOT NULL,
+      warehouse_id INT NOT NULL,
+      date DATE NOT NULL,
+      amount DECIMAL(18, 2) NOT NULL,
+      currency_id INT NOT NULL,
+      exchange_rate DECIMAL(18, 2),
+      amount_base DECIMAL(18, 2),
+      description TEXT,
+      status ENUM('PENDING', 'APPROVED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+      cancellation_reason TEXT,
+      created_by INT NOT NULL,
+      accepted_by INT,
+      cancelled_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+      accepted_at TIMESTAMP NULL,
+      cancelled_at TIMESTAMP NULL,
+      FOREIGN KEY (expense_type_id) REFERENCES expense_types(id),
+      FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
+      FOREIGN KEY (currency_id) REFERENCES currencies(id),
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      FOREIGN KEY (accepted_by) REFERENCES users(id),
+      FOREIGN KEY (cancelled_by) REFERENCES users(id),
+      INDEX idx_expense_warehouse (warehouse_id),
+      INDEX idx_expense_type (expense_type_id),
+      INDEX idx_expense_status (status),
+      INDEX idx_expense_date (date)
+    )
+  `);
+
+  console.log("✅ Tabla de gastos creada.");
+
   console.log("✅ Todas las tablas creadas exitosamente.");
 
   // ═══════════════════════════════════════════════════════════════
@@ -667,6 +724,18 @@ async function main() {
     { name: 'adjustments.create', description: 'Crear ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.accept', description: 'Aprobar ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.cancel', description: 'Cancelar ajustes de inventario propios', group_name: 'adjustments' },
+
+    // CRUD tipos de gastos
+    { name: 'expense_types.read', description: 'Leer tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.create', description: 'Crear tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.update', description: 'Actualizar tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.delete', description: 'Eliminar tipos de gastos', group_name: 'expense_types' },
+
+    // Gastos
+    { name: 'expenses.read', description: 'Leer gastos', group_name: 'expenses' },
+    { name: 'expenses.create', description: 'Crear gastos', group_name: 'expenses' },
+    { name: 'expenses.accept', description: 'Aprobar gastos', group_name: 'expenses' },
+    { name: 'expenses.cancel', description: 'Cancelar gastos propios', group_name: 'expenses' },
   ];
 
   for (const p of fixedPermissions) {
@@ -743,6 +812,28 @@ async function main() {
       VALUES (${adjustmentType.name}, ${adjustmentType.description}, ${adjustmentType.affects_positively})`);
   }
   console.log("Tipos de ajuste comunes creados.");
+
+  // Seed de tipos de gastos comunes
+  const commonExpenseTypes = [
+    { name: 'Alquiler', description: 'Pago de alquiler de local o almacén' },
+    { name: 'Servicios públicos', description: 'Electricidad, agua, gas, internet, teléfono' },
+    { name: 'Salarios', description: 'Pago de salarios y nóminas' },
+    { name: 'Transporte', description: 'Gastos de transporte y combustible' },
+    { name: 'Mantenimiento', description: 'Reparaciones y mantenimiento de equipos e instalaciones' },
+    { name: 'Publicidad', description: 'Gastos de marketing y publicidad' },
+    { name: 'Suministros de oficina', description: 'Papelería, materiales de oficina' },
+    { name: 'Impuestos', description: 'Pago de impuestos y contribuciones' },
+    { name: 'Seguros', description: 'Primas de seguros' },
+    { name: 'Comisiones bancarias', description: 'Comisiones y cargos bancarios' },
+    { name: 'Viáticos', description: 'Gastos de viaje y alimentación' },
+    { name: 'Otros gastos', description: 'Gastos varios no categorizados' },
+  ];
+
+  for (const expenseType of commonExpenseTypes) {
+    await db.execute(sql`INSERT INTO expense_types (name, description, is_active) 
+      VALUES (${expenseType.name}, ${expenseType.description}, TRUE)`);
+  }
+  console.log("Tipos de gastos comunes creados.");
 
   console.log("\n✅ Migración completada exitosamente!");
   console.log("📊 Base de datos creada con sistema de inventario por lotes.");

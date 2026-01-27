@@ -25,6 +25,8 @@ import { lotConsumptions } from "./lot_consumptions";
 import { adjustmentTypes } from "./adjustment_types";
 import { adjustments } from "./adjustments";
 import { adjustmentsDetail } from "./adjustments_detail";
+import { expenseTypes } from "./expense_types";
+import { expenses } from "./expenses";
 
 export const schemas = {
   users,
@@ -54,4 +56,6 @@ export const schemas = {
   adjustmentTypes,
   adjustments,
   adjustmentsDetail,
+  expenseTypes,
+  expenses,
 };

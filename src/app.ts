@@ -24,6 +24,8 @@ import transferRoutes from "./modules/transfers/transfers.routes";
 import reportRoutes from "./modules/reports/reports.routes";
 import adjustmentTypeRoutes from "./modules/adjustment_types/adjustment_types.routes";
 import adjustmentRoutes from "./modules/adjustments/adjustments.routes";
+import expenseTypeRoutes from "./modules/expense_types/expense_types.routes";
+import expenseRoutes from "./modules/expenses/expenses.routes";
 import { authMiddleware } from "./middlewares/auth.middleware";
 
 const app = express();
@@ -88,6 +90,8 @@ app.use("/transfers", transferRoutes);
 app.use("/reports", reportRoutes);
 app.use("/adjustment-types", adjustmentTypeRoutes);
 app.use("/adjustments", adjustmentRoutes);
+app.use("/expense-types", expenseTypeRoutes);
+app.use("/expenses", expenseRoutes);
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
