@@ -24,8 +24,8 @@ interface Expense {
   date: string;
   expenseTypeId: number;
   expenseTypeName: string;
-  warehouseId: number;
-  warehouseName: string;
+  warehouseId: number | null;      // Opcional para gastos corporativos
+  warehouseName: string | null;    // Opcional para gastos corporativos
   amount: string;
   currencyId: number;
   currencyCode: string;
@@ -163,15 +163,17 @@ export class ExpensesService {
   // ========== CREAR GASTO ==========
   async create(data: {
     expenseTypeId: number;
-    warehouseId: number;
+    warehouseId?: number;  // Opcional para gastos corporativos
     date?: string;
     amount: number;
     currencyId: number;
     description?: string;
     userId: number;
   }) {
-    // Validar que el usuario pertenece al almacén
-    await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
+    // Si se especifica almacén, validar que el usuario pertenece a él
+    if (data.warehouseId) {
+      await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
+    }
 
     // Validar monto
     if (data.amount <= 0) {
@@ -192,14 +194,16 @@ export class ExpensesService {
       throw new ValidationError("El tipo de gasto no está activo");
     }
 
-    // Validar almacén
-    const [warehouse] = await db
-      .select()
-      .from(warehouses)
-      .where(eq(warehouses.id, data.warehouseId));
+    // Validar almacén solo si se especifica
+    if (data.warehouseId) {
+      const [warehouse] = await db
+        .select()
+        .from(warehouses)
+        .where(eq(warehouses.id, data.warehouseId));
 
-    if (!warehouse) {
-      throw new NotFoundError("Almacén no encontrado");
+      if (!warehouse) {
+        throw new NotFoundError("Almacén no encontrado");
+      }
     }
 
     // Validar moneda
@@ -258,15 +262,21 @@ export class ExpensesService {
     // Obtener almacenes del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
-    if (userWarehouseIds.length === 0) {
-      return [];
-    }
-
+    // Condiciones base de fecha
     const conditions: any[] = [
       gte(expenses.date, sql`${startDate}`),
       lte(expenses.date, sql`${endDate}`),
-      inArray(expenses.warehouseId, userWarehouseIds),
     ];
+
+    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    if (userWarehouseIds.length > 0) {
+      conditions.push(
+        sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
+      );
+    } else {
+      // Si no tiene almacenes, solo puede ver gastos corporativos (sin almacén)
+      conditions.push(sql`${expenses.warehouseId} IS NULL`);
+    }
 
     if (warehouseId) {
       if (!userWarehouseIds.includes(warehouseId)) {
@@ -291,7 +301,7 @@ export class ExpensesService {
         expenseTypeId: expenses.expenseTypeId,
         expenseTypeName: expenseTypes.name,
         warehouseId: expenses.warehouseId,
-        warehouseName: warehouses.name,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as("warehouse_name"),
         amount: expenses.amount,
         currencyId: expenses.currencyId,
         currencyCode: currencies.code,
@@ -312,7 +322,7 @@ export class ExpensesService {
       })
       .from(expenses)
       .innerJoin(expenseTypes, eq(expenses.expenseTypeId, expenseTypes.id))
-      .innerJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
       .innerJoin(currencies, eq(expenses.currencyId, currencies.id))
       .innerJoin(createdByUser, eq(expenses.createdBy, createdByUser.id))
       .leftJoin(acceptedByUser, eq(expenses.acceptedBy, acceptedByUser.id))
@@ -331,7 +341,7 @@ export class ExpensesService {
         expenseTypeId: expenses.expenseTypeId,
         expenseTypeName: expenseTypes.name,
         warehouseId: expenses.warehouseId,
-        warehouseName: warehouses.name,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as("warehouse_name"),
         amount: expenses.amount,
         currencyId: expenses.currencyId,
         currencyCode: currencies.code,
@@ -353,7 +363,7 @@ export class ExpensesService {
       })
       .from(expenses)
       .innerJoin(expenseTypes, eq(expenses.expenseTypeId, expenseTypes.id))
-      .innerJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
       .innerJoin(currencies, eq(expenses.currencyId, currencies.id))
       .innerJoin(createdByUser, eq(expenses.createdBy, createdByUser.id))
       .leftJoin(acceptedByUser, eq(expenses.acceptedBy, acceptedByUser.id))
@@ -440,16 +450,21 @@ export class ExpensesService {
     // Obtener almacenes del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
-    if (userWarehouseIds.length === 0) {
-      return { total: 0, byType: [], byWarehouse: [] };
-    }
-
+    // Condiciones base
     const conditions: any[] = [
       gte(expenses.date, sql`${startDate}`),
       lte(expenses.date, sql`${endDate}`),
-      inArray(expenses.warehouseId, userWarehouseIds),
       eq(expenses.status, "APPROVED"),
     ];
+
+    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    if (userWarehouseIds.length > 0) {
+      conditions.push(
+        sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
+      );
+    } else {
+      conditions.push(sql`${expenses.warehouseId} IS NULL`);
+    }
 
     if (warehouseId) {
       if (!userWarehouseIds.includes(warehouseId)) {
@@ -480,18 +495,18 @@ export class ExpensesService {
       .groupBy(expenses.expenseTypeId, expenseTypes.name)
       .orderBy(desc(sql`total`));
 
-    // Por almacén
+    // Por almacén (incluye "Corporativo" para gastos sin almacén)
     const byWarehouse = await db
       .select({
         warehouseId: expenses.warehouseId,
-        warehouseName: warehouses.name,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as("warehouse_name"),
         total: sql<string>`SUM(${expenses.amountBase})`.as("total"),
         count: sql<number>`COUNT(*)`.as("count"),
       })
       .from(expenses)
-      .innerJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
       .where(and(...conditions))
-      .groupBy(expenses.warehouseId, warehouses.name)
+      .groupBy(expenses.warehouseId, sql`COALESCE(${warehouses.name}, 'Corporativo')`)
       .orderBy(desc(sql`total`));
 
     return {
@@ -519,23 +534,20 @@ export class ExpensesService {
     // Obtener almacenes del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
-    if (userWarehouseIds.length === 0) {
-      return {
-        period: { startDate, endDate },
-        totals: { approved: 0, pending: 0, cancelled: 0 },
-        byType: [],
-        byWarehouse: [],
-        byMonth: [],
-        topExpenses: [],
-      };
-    }
-
     // Condiciones base
     const baseConditions: any[] = [
       gte(expenses.date, sql`${startDate}`),
       lte(expenses.date, sql`${endDate}`),
-      inArray(expenses.warehouseId, userWarehouseIds),
     ];
+
+    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    if (userWarehouseIds.length > 0) {
+      baseConditions.push(
+        sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
+      );
+    } else {
+      baseConditions.push(sql`${expenses.warehouseId} IS NULL`);
+    }
 
     if (warehouseId) {
       if (!userWarehouseIds.includes(warehouseId)) {
@@ -591,6 +603,11 @@ export class ExpensesService {
     // Condiciones solo aprobados
     const approvedConditions = [...baseConditions, eq(expenses.status, "APPROVED")];
 
+    // Subconsulta para el total (para calcular porcentajes)
+    const totalSubquery = userWarehouseIds.length > 0
+      ? `(SELECT SUM(amount_base) FROM expenses WHERE status = 'APPROVED' AND date >= '${startDate}' AND date <= '${endDate}' AND (warehouse_id IS NULL OR warehouse_id IN (${userWarehouseIds.join(",")})))`
+      : `(SELECT SUM(amount_base) FROM expenses WHERE status = 'APPROVED' AND date >= '${startDate}' AND date <= '${endDate}' AND warehouse_id IS NULL)`;
+
     // 2. Por tipo de gasto (solo aprobados)
     const byType = await db
       .select({
@@ -598,7 +615,7 @@ export class ExpensesService {
         expenseTypeName: expenseTypes.name,
         total: sql<string>`SUM(${expenses.amountBase})`.as("total"),
         count: sql<number>`COUNT(*)`.as("count"),
-        percentage: sql<string>`ROUND(SUM(${expenses.amountBase}) * 100 / NULLIF((SELECT SUM(amount_base) FROM expenses WHERE status = 'APPROVED' AND date >= ${startDate} AND date <= ${endDate} AND warehouse_id IN (${sql.raw(userWarehouseIds.join(","))})), 0), 2)`.as("percentage"),
+        percentage: sql<string>`ROUND(SUM(${expenses.amountBase}) * 100 / NULLIF(${sql.raw(totalSubquery)}, 0), 2)`.as("percentage"),
       })
       .from(expenses)
       .innerJoin(expenseTypes, eq(expenses.expenseTypeId, expenseTypes.id))
@@ -606,19 +623,19 @@ export class ExpensesService {
       .groupBy(expenses.expenseTypeId, expenseTypes.name)
       .orderBy(desc(sql`total`));
 
-    // 3. Por almacén (solo aprobados)
+    // 3. Por almacén (solo aprobados, incluye "Corporativo" para null)
     const byWarehouse = await db
       .select({
         warehouseId: expenses.warehouseId,
-        warehouseName: warehouses.name,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as("warehouse_name"),
         total: sql<string>`SUM(${expenses.amountBase})`.as("total"),
         count: sql<number>`COUNT(*)`.as("count"),
-        percentage: sql<string>`ROUND(SUM(${expenses.amountBase}) * 100 / NULLIF((SELECT SUM(amount_base) FROM expenses WHERE status = 'APPROVED' AND date >= ${startDate} AND date <= ${endDate} AND warehouse_id IN (${sql.raw(userWarehouseIds.join(","))})), 0), 2)`.as("percentage"),
+        percentage: sql<string>`ROUND(SUM(${expenses.amountBase}) * 100 / NULLIF(${sql.raw(totalSubquery)}, 0), 2)`.as("percentage"),
       })
       .from(expenses)
-      .innerJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
       .where(and(...approvedConditions))
-      .groupBy(expenses.warehouseId, warehouses.name)
+      .groupBy(expenses.warehouseId, sql`COALESCE(${warehouses.name}, 'Corporativo')`)
       .orderBy(desc(sql`total`));
 
     // 4. Por mes (solo aprobados)
@@ -640,7 +657,7 @@ export class ExpensesService {
         expenseNumber: expenses.expenseNumber,
         date: expenses.date,
         expenseTypeName: expenseTypes.name,
-        warehouseName: warehouses.name,
+        warehouseName: sql<string>`COALESCE(${warehouses.name}, 'Corporativo')`.as("warehouse_name"),
         amount: expenses.amount,
         currencyCode: currencies.code,
         amountBase: expenses.amountBase,
@@ -648,7 +665,7 @@ export class ExpensesService {
       })
       .from(expenses)
       .innerJoin(expenseTypes, eq(expenses.expenseTypeId, expenseTypes.id))
-      .innerJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
+      .leftJoin(warehouses, eq(expenses.warehouseId, warehouses.id))
       .innerJoin(currencies, eq(expenses.currencyId, currencies.id))
       .where(and(...approvedConditions))
       .orderBy(desc(expenses.amountBase))

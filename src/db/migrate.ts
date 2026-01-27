@@ -564,7 +564,7 @@ async function main() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       expense_number VARCHAR(20) NOT NULL UNIQUE,
       expense_type_id INT NOT NULL,
-      warehouse_id INT NOT NULL,
+      warehouse_id INT NULL,
       date DATE NOT NULL,
       amount DECIMAL(18, 2) NOT NULL,
       currency_id INT NOT NULL,

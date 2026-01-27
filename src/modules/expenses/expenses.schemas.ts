@@ -3,7 +3,7 @@ import { z } from "zod";
 export const createExpenseSchema = z.object({
   body: z.object({
     expenseTypeId: z.number().int().positive(),
-    warehouseId: z.number().int().positive(),
+    warehouseId: z.number().int().positive().optional(), // Opcional para gastos corporativos
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
     amount: z.number().positive("El monto debe ser mayor a 0"),
     currencyId: z.number().int().positive(),
