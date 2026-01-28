@@ -181,22 +181,25 @@ export class PurchasesService {
       throw new ValidationError("La factura debe tener al menos un producto");
     }
 
-    // Determinar si la compra tiene precios
-    const hasAnyPrice = data.details.some(d => d.unitCost !== undefined && d.unitCost > 0);
-    const allHavePrices = data.details.every(d => d.unitCost !== undefined && d.unitCost > 0);
+    // Determinar si la compra tiene precios (análisis por item)
+    const itemsWithPrice = data.details.filter(d => d.unitCost !== undefined && d.unitCost > 0);
+    const itemsWithoutPrice = data.details.filter(d => d.unitCost === undefined || d.unitCost === 0);
+    const hasAnyPrice = itemsWithPrice.length > 0;
+    const allHavePrices = itemsWithoutPrice.length === 0;
     
     // Si tiene precios pero no tiene permiso, rechazar
     if (hasAnyPrice && !canSetPrice) {
       throw new ForbiddenError("No tienes permiso para asignar precios a las compras. Crea la compra sin precios y un usuario autorizado los asignará después.");
     }
     
-    // Determinar si se crearán lotes bloqueados
-    // Lotes LOCKED: cuando no tiene todos los precios O cuando no tiene permiso de precio
-    const willCreateLockedLots = !allHavePrices || !canSetPrice;
+    // Determinar si habrá lotes bloqueados (algunos items sin precio)
+    // MEJORA: Ahora permite envío mixto - cada item se evalúa individualmente
+    const hasLockedItems = itemsWithoutPrice.length > 0;
+    const hasActiveItems = itemsWithPrice.length > 0 && canSetPrice;
     
-    // Para compras con lotes bloqueados, no se requiere tasa de cambio aún
+    // Para items con precio, se requiere tasa de cambio
     let exchangeRateToCUP = 1;
-    if (!willCreateLockedLots) {
+    if (hasActiveItems) {
       exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, purchaseDate);
     }
 
@@ -225,8 +228,12 @@ export class PurchasesService {
           throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
-        // El costo convertido a CUP (0 si no tiene precio)
-        const convertedUnitCost = unitCost * exchangeRateToCUP;
+        // MEJORA: Evaluar cada item individualmente
+        // Si tiene precio y hay permiso → usar tasa de cambio real
+        // Si no tiene precio → marcar como locked, usar tasa 1
+        const itemHasPrice = unitCost > 0 && canSetPrice;
+        const itemExchangeRate = itemHasPrice ? exchangeRateToCUP : 1;
+        const convertedUnitCost = unitCost * itemExchangeRate;
         const lineSubtotal = unitCost * detail.quantity;
         subtotal += lineSubtotal;
 
@@ -236,9 +243,10 @@ export class PurchasesService {
           quantity: detail.quantity.toString(),
           unitCost: unitCost.toString(),
           originalCurrencyId: data.currencyId,
-          exchangeRateUsed: willCreateLockedLots ? "1" : exchangeRateToCUP.toString(),
+          exchangeRateUsed: itemExchangeRate.toString(),
           convertedUnitCost: convertedUnitCost.toString(),
           subtotal: lineSubtotal.toString(),
+          isLocked: !itemHasPrice, // NUEVO: flag individual por item
         };
       })
     );
@@ -249,10 +257,13 @@ export class PurchasesService {
       const invoiceNumber = await this.generateInvoiceNumber(tx);
 
       // Determinar estado inicial:
-      // - Si tiene precios completos Y puede aprobar: APPROVED
-      // - Si no tiene precios (lotes LOCKED): APPROVED (pero con lotes bloqueados)
-      // - Si tiene precios pero no puede aprobar: PENDING
-      const shouldApprove = willCreateLockedLots || (data.autoApprove && canAccept);
+      // - Si tiene items con precio O items sin precio → APPROVED (auto-aprobación)
+      // - Si solo tiene items con precio y puede aprobar → APPROVED
+      // - Si tiene items con precio pero no puede aprobar → PENDING
+      const shouldApprove = hasLockedItems || (data.autoApprove && canAccept);
+      
+      // hasPricing: true solo si TODOS los items tienen precio
+      const hasPricingComplete = allHavePrices && canSetPrice;
       
       // Crear factura
       const [purchase] = (await tx.insert(purchases).values({
@@ -266,7 +277,7 @@ export class PurchasesService {
         subtotal: subtotal.toString(),
         total: subtotal.toString(),
         notes: data.notes || null,
-        hasPricing: !willCreateLockedLots, // false si los lotes estarán bloqueados
+        hasPricing: hasPricingComplete, // true solo si todos los items tienen precio
         createdBy: data.userId,
         acceptedBy: shouldApprove ? data.userId : null,
         acceptedAt: shouldApprove ? new Date() : null,
@@ -285,7 +296,7 @@ export class PurchasesService {
         insertedDetailIds.push(insertResult.insertId);
       }
 
-      // Crear lotes (LOCKED o ACTIVE según tenga precios)
+      // Crear lotes (LOCKED o ACTIVE según tenga precios - EVALUADO POR ITEM)
       if (shouldApprove) {
         for (let i = 0; i < detailsProcessed.length; i++) {
           const detail = detailsProcessed[i];
@@ -296,9 +307,10 @@ export class PurchasesService {
           const originalUnitCost = parseFloat(detail.unitCost);
           const exchangeRate = parseFloat(detail.exchangeRateUsed);
           const unitCostBase = parseFloat(detail.convertedUnitCost);
+          const itemIsLocked = detail.isLocked; // NUEVO: evaluación individual
 
           // Crear lote de inventario
-          // Si willCreateLockedLots, el lote se crea en estado LOCKED
+          // MEJORA: Cada item se evalúa individualmente (ACTIVE o LOCKED)
           const lotId = await lotService.createLot({
             productId: detail.productId,
             warehouseId: data.warehouseId,
@@ -310,7 +322,7 @@ export class PurchasesService {
             sourceType: "PURCHASE",
             sourceId: purchaseId,
             entryDate: today,
-            isLocked: willCreateLockedLots, // LOCKED si no tiene precios
+            isLocked: itemIsLocked, // LOCKED solo si este item no tiene precio
           }, lineNumber, tx);
 
           // Actualizar el detalle con la referencia al lote
@@ -322,12 +334,12 @@ export class PurchasesService {
           // Crear movimiento de inventario
           await tx.insert(inventoryMovements).values({
             type: "INVOICE_ENTRY",
-            status: willCreateLockedLots ? "PENDING" : "APPROVED", // PENDING si lotes bloqueados
+            status: itemIsLocked ? "PENDING" : "APPROVED", // PENDING solo si este item está bloqueado
             warehouseId: data.warehouseId,
             productId: detail.productId,
             quantity: detail.quantity,
             reference: invoiceNumber,
-            reason: willCreateLockedLots 
+            reason: itemIsLocked 
               ? `Entrada pendiente de precio por factura ${invoiceNumber}`
               : `Entrada por factura ${invoiceNumber}`,
             lotId,
@@ -335,11 +347,20 @@ export class PurchasesService {
         }
       }
 
+      // Contar lotes por estado para respuesta detallada
+      const lockedCount = detailsProcessed.filter(d => d.isLocked).length;
+      const activeCount = detailsProcessed.filter(d => !d.isLocked).length;
+
       // Mensaje de respuesta según el caso
       let message = "Factura de compra creada exitosamente";
-      if (shouldApprove && willCreateLockedLots) {
+      if (shouldApprove && lockedCount > 0 && activeCount > 0) {
+        // Caso mixto: algunos con precio, otros sin
+        message = `Factura creada: ${activeCount} lote(s) activo(s), ${lockedCount} lote(s) pendiente(s) de precio.`;
+      } else if (shouldApprove && lockedCount > 0) {
+        // Todos sin precio
         message = "Factura creada con lotes bloqueados. Un usuario autorizado debe asignar los precios para desbloquear el inventario.";
       } else if (shouldApprove) {
+        // Todos con precio
         message = "Factura de compra creada y aprobada exitosamente. Lotes creados.";
       }
 
@@ -349,8 +370,10 @@ export class PurchasesService {
         subtotal, 
         total: subtotal,
         status: shouldApprove ? "APPROVED" : "PENDING",
-        hasPricing: !willCreateLockedLots,
-        lotsLocked: willCreateLockedLots,
+        hasPricing: hasPricingComplete,
+        lotsLocked: lockedCount,    // CAMBIO: ahora es número, no boolean
+        lotsActive: activeCount,    // NUEVO: cantidad de lotes activos
+        pendingPricing: lockedCount > 0, // NUEVO: flag para UI
         message,
       };
     });
@@ -510,9 +533,11 @@ export class PurchasesService {
         convertedUnitCost: purchasesDetail.convertedUnitCost,
         subtotal: purchasesDetail.subtotal,
         lotId: purchasesDetail.lotId,
+        lotStatus: inventoryLots.status, // NUEVO: estado del lote para detectar LOCKED
       })
       .from(purchasesDetail)
       .innerJoin(products, eq(purchasesDetail.productId, products.id))
+      .leftJoin(inventoryLots, eq(purchasesDetail.lotId, inventoryLots.id))
       .where(eq(purchasesDetail.purchaseId, id));
 
     return { ...purchase, details };
@@ -545,9 +570,12 @@ export class PurchasesService {
         convertedUnitCost: purchasesDetail.convertedUnitCost,
         subtotal: purchasesDetail.subtotal,
         lotId: purchasesDetail.lotId,
+        lotStatus: inventoryLots.status, // NUEVO: estado del lote (ACTIVE, LOCKED, EXHAUSTED)
+        isPendingPrice: sql<boolean>`(${inventoryLots.status} = 'LOCKED' OR ${purchasesDetail.unitCost} = '0')`.as('is_pending_price'),
       })
       .from(purchasesDetail)
       .innerJoin(products, eq(purchasesDetail.productId, products.id))
+      .leftJoin(inventoryLots, eq(purchasesDetail.lotId, inventoryLots.id))
       .where(eq(purchasesDetail.purchaseId, id));
 
     return Object.assign({}, purchase, { details });
@@ -1148,6 +1176,7 @@ export class PurchasesService {
   // ========== ASIGNAR PRECIOS A COMPRA (DESBLOQUEAR LOTES) ==========
   // Endpoint para que usuarios con permiso purchases.price asignen costos
   // y desbloqueen los lotes que estaban en estado LOCKED
+  // MEJORA: Ahora soporta asignación parcial (solo items pendientes de precio)
   async assignPricing(
     purchaseId: number,
     pricing: Array<{
@@ -1163,14 +1192,33 @@ export class PurchasesService {
     // Validar que el usuario pertenece al almacén de la compra
     await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
     
-    // Validar que la compra no tiene precios aún
-    if (purchase.hasPricing) {
-      throw new ConflictError("Esta compra ya tiene precios asignados");
+    // MEJORA: Ya no rechaza si hasPricing=true, ahora verifica items individuales
+    // Validar que la compra está aprobada
+    if (purchase.status !== "APPROVED") {
+      throw new ValidationError("Solo se pueden asignar precios a compras aprobadas");
     }
     
-    // Validar que la compra está aprobada (con lotes bloqueados)
-    if (purchase.status !== "APPROVED") {
-      throw new ValidationError("Solo se pueden asignar precios a compras aprobadas con lotes bloqueados");
+    // Identificar items pendientes de precio (unitCost = 0 o lote LOCKED)
+    const pendingDetails = purchase.details.filter(d => 
+      parseFloat(d.unitCost) === 0 || d.lotStatus === "LOCKED"
+    );
+    
+    if (pendingDetails.length === 0) {
+      throw new ConflictError("Esta compra ya tiene todos los precios asignados");
+    }
+    
+    // Crear mapa de precios por detailId
+    const pricingMap = new Map(pricing.map(p => [p.detailId, p.unitCost]));
+    
+    // Validar que todos los detalles PENDIENTES tienen precio en el request
+    for (const detail of pendingDetails) {
+      if (!pricingMap.has(detail.id)) {
+        throw new ValidationError(`Falta precio para el detalle ID ${detail.id} (${detail.productName})`);
+      }
+      const cost = pricingMap.get(detail.id)!;
+      if (cost <= 0) {
+        throw new ValidationError(`El costo del detalle ID ${detail.id} debe ser mayor a 0`);
+      }
     }
     
     // Obtener fecha de hoy para tasa de cambio
@@ -1179,30 +1227,17 @@ export class PurchasesService {
     // Obtener tasa de cambio
     const exchangeRateToCUP = await this.getExchangeRateToCUP(currencyId, today);
     
-    // Crear mapa de precios por detailId
-    const pricingMap = new Map(pricing.map(p => [p.detailId, p.unitCost]));
-    
-    // Validar que todos los detalles tienen precio
-    for (const detail of purchase.details) {
-      if (!pricingMap.has(detail.id)) {
-        throw new ValidationError(`Falta precio para el detalle ID ${detail.id}`);
-      }
-      const cost = pricingMap.get(detail.id)!;
-      if (cost <= 0) {
-        throw new ValidationError(`El costo del detalle ID ${detail.id} debe ser mayor a 0`);
-      }
-    }
-    
     // Ejecutar actualización en transacción
-    return await db.transaction(async (tx) => {
-      let newSubtotal = 0;
+    await db.transaction(async (tx) => {
+      let addedSubtotal = 0;
       
-      for (const detail of purchase.details) {
+      // Solo procesar los items que estaban pendientes
+      for (const detail of pendingDetails) {
         const unitCost = pricingMap.get(detail.id)!;
         const quantity = parseFloat(detail.quantity);
         const convertedUnitCost = unitCost * exchangeRateToCUP;
         const lineSubtotal = unitCost * quantity;
-        newSubtotal += lineSubtotal;
+        addedSubtotal += lineSubtotal;
         
         // Actualizar detalle con precios
         await tx
@@ -1242,27 +1277,44 @@ export class PurchasesService {
         }
       }
       
-      // Actualizar la compra con los nuevos totales y marcar como con precios
+      // Calcular nuevo subtotal (existente + nuevos precios)
+      const currentSubtotal = parseFloat(purchase.subtotal || "0");
+      const newSubtotal = currentSubtotal + addedSubtotal;
+      
+      // Verificar si ahora todos los items tienen precio
+      const remainingPending = purchase.details.length - pendingDetails.length;
+      const allHavePricesNow = remainingPending === 0 || 
+        (purchase.details.length === pendingDetails.length); // Si procesamos todos los pendientes
+      
+      // Actualizar la compra
       await tx
         .update(purchases)
         .set({
           currencyId, // Actualizar moneda de la factura
           subtotal: newSubtotal.toString(),
           total: newSubtotal.toString(),
-          hasPricing: true,
+          hasPricing: allHavePricesNow, // true solo si ya no quedan items pendientes
         })
         .where(eq(purchases.id, purchaseId));
     });
     
     // Retornar compra actualizada
-    const updatedPurchase = await this.getPurchaseById(purchaseId, userId);
+    const updatedPurchase = await this.getPurchaseById(purchaseId, userId) as any;
+    
+    const message = updatedPurchase.hasPricing 
+      ? "Todos los precios asignados exitosamente. Lotes desbloqueados y disponibles para operaciones."
+      : `Precios asignados a ${pendingDetails.length} item(s). Algunos items aún pendientes de precio.`;
+    
     return {
-      message: "Precios asignados exitosamente. Lotes desbloqueados y disponibles para operaciones.",
+      message,
       data: updatedPurchase,
+      itemsUpdated: pendingDetails.length,
+      allComplete: updatedPurchase.hasPricing as boolean,
     };
   }
 
   // Obtener compras pendientes de precio (lotes bloqueados)
+  // MEJORA: Ahora verifica que realmente haya items con lotes LOCKED
   async getPurchasesPendingPricing(userId: number) {
     // Obtener almacenes del usuario
     const userWarehousesData = await db
@@ -1276,13 +1328,80 @@ export class PurchasesService {
       return [];
     }
 
-    // Obtener compras aprobadas sin precios
-    return await this.getPurchasesWithUserNames(
-      and(
-        eq(purchases.status, "APPROVED"),
-        eq(purchases.hasPricing, false),
-        inArray(purchases.warehouseId, assignedWarehouseIds)
+    // Obtener compras aprobadas que tengan al menos un lote LOCKED
+    // Subconsulta para contar lotes LOCKED por compra
+    const purchasesWithLockedLots = await db
+      .select({
+        id: purchases.id,
+        invoiceNumber: purchases.invoiceNumber,
+        supplierName: purchases.supplierName,
+        supplierPhone: purchases.supplierPhone,
+        date: sql<string>`DATE_FORMAT(${purchases.date}, '%Y-%m-%d')`.as('date'),
+        warehouseId: purchases.warehouseId,
+        warehouseName: warehouses.name,
+        currencyId: purchases.currencyId,
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+        status: purchases.status,
+        hasPricing: purchases.hasPricing,
+        subtotal: purchases.subtotal,
+        total: purchases.total,
+        notes: purchases.notes,
+        createdBy: purchases.createdBy,
+        createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+        createdAt: purchases.createdAt,
+        // Contar items pendientes (lotes LOCKED o sin precio)
+        pendingItemsCount: sql<number>`(
+          SELECT COUNT(*) FROM purchases_detail pd
+          LEFT JOIN inventory_lots il ON pd.lot_id = il.id
+          WHERE pd.purchase_id = ${purchases.id}
+          AND (il.status = 'LOCKED' OR pd.unit_cost = '0' OR pd.unit_cost IS NULL)
+        )`.as('pending_items_count'),
+        totalItemsCount: sql<number>`(
+          SELECT COUNT(*) FROM purchases_detail pd
+          WHERE pd.purchase_id = ${purchases.id}
+        )`.as('total_items_count'),
+      })
+      .from(purchases)
+      .innerJoin(warehouses, eq(purchases.warehouseId, warehouses.id))
+      .innerJoin(currencies, eq(purchases.currencyId, currencies.id))
+      .innerJoin(createdByUser, eq(purchases.createdBy, createdByUser.id))
+      .where(
+        and(
+          eq(purchases.status, "APPROVED"),
+          inArray(purchases.warehouseId, assignedWarehouseIds)
+        )
       )
-    );
+      .having(sql`pending_items_count > 0`) // Solo las que tienen items pendientes
+      .orderBy(desc(purchases.createdAt));
+
+    // Corregir hasPricing si está inconsistente
+    for (const purchase of purchasesWithLockedLots) {
+      if (purchase.hasPricing && purchase.pendingItemsCount > 0) {
+        // Inconsistencia: hasPricing=true pero hay items pendientes
+        await db
+          .update(purchases)
+          .set({ hasPricing: false })
+          .where(eq(purchases.id, purchase.id));
+        purchase.hasPricing = false;
+      }
+    }
+
+    // También corregir compras que tienen hasPricing=false pero 0 items pendientes
+    // (no estarán en el resultado, pero hay que corregirlas)
+    await db.execute(sql`
+      UPDATE purchases p
+      SET p.has_pricing = TRUE
+      WHERE p.status = 'APPROVED'
+        AND p.has_pricing = FALSE
+        AND NOT EXISTS (
+          SELECT 1 FROM purchases_detail pd
+          LEFT JOIN inventory_lots il ON pd.lot_id = il.id
+          WHERE pd.purchase_id = p.id
+          AND (il.status = 'LOCKED' OR pd.unit_cost = '0' OR pd.unit_cost IS NULL)
+        )
+    `);
+
+    return purchasesWithLockedLots;
   }
 }
