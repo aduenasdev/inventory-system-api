@@ -5,6 +5,7 @@ import { products } from "../../db/schema/products";
 import { warehouses } from "../../db/schema/warehouses";
 import { currencies } from "../../db/schema/currencies";
 import { categories } from "../../db/schema/categories";
+import { units } from "../../db/schema/units";
 import { userWarehouses } from "../../db/schema/user_warehouses";
 import { sales } from "../../db/schema/sales";
 import { salesDetail } from "../../db/schema/sales_detail";
@@ -1034,6 +1035,557 @@ export class ReportsService {
         lines.push(`${p.productCode},${p.productName},${p.categoryName},${p.unitsSold},${p.revenue},${p.cost},${p.profit},${p.marginPercent}`);
       });
     }
+
+    return lines.join("\n");
+  }
+
+  // ========== REPORTE 7: INVENTARIO VALORIZADO COMPLETO (NIC 2) ==========
+  // Informe de inventario con valuación FIFO, cumpliendo estándares contables
+  async getInventoryValuation(
+    userId: number,
+    options: {
+      warehouseId?: number;
+      categoryId?: number;
+      productId?: number;
+      cutoffDate?: string;
+      onlyWithStock?: boolean;
+      onlyBelowMin?: boolean;
+      groupBy?: "warehouse" | "category" | "supplier" | "age";
+      includeMovements?: boolean;
+      includeKardex?: boolean;
+      startDate?: string;
+      endDate?: string;
+    }
+  ) {
+    // Obtener almacenes permitidos
+    const allowedWarehouses = await this.getUserWarehouses(userId);
+    if (allowedWarehouses.length === 0) {
+      return this.getEmptyInventoryValuation();
+    }
+
+    // Validar acceso si especifica almacén
+    if (options.warehouseId && !allowedWarehouses.includes(options.warehouseId)) {
+      throw new ForbiddenError("No tienes acceso a este almacén");
+    }
+
+    const warehouseFilter = options.warehouseId 
+      ? [options.warehouseId] 
+      : allowedWarehouses;
+
+    const today = options.cutoffDate || new Date().toISOString().split('T')[0];
+
+    // ========== 1. OBTENER LOTES ACTIVOS (excluir LOCKED) ==========
+    const conditions: any[] = [
+      eq(inventoryLots.status, "ACTIVE"), // Solo ACTIVE, excluir LOCKED
+      inArray(inventoryLots.warehouseId, warehouseFilter),
+    ];
+
+    if (options.productId) {
+      conditions.push(eq(inventoryLots.productId, options.productId));
+    }
+
+    if (options.categoryId) {
+      conditions.push(eq(products.categoryId, options.categoryId));
+    }
+
+    // Si hay fecha de corte, considerar solo lotes que existían en esa fecha
+    if (options.cutoffDate) {
+      conditions.push(lte(inventoryLots.entryDate, sql`${options.cutoffDate}`));
+    }
+
+    const lotsData = await db
+      .select({
+        // Lote
+        lotId: inventoryLots.id,
+        lotCode: inventoryLots.lotCode,
+        entryDate: sql<string>`DATE_FORMAT(${inventoryLots.entryDate}, '%Y-%m-%d')`.as('entry_date'),
+        initialQuantity: inventoryLots.initialQuantity,
+        currentQuantity: inventoryLots.currentQuantity,
+        unitCostBase: inventoryLots.unitCostBase,
+        originalCurrencyId: inventoryLots.originalCurrencyId,
+        originalUnitCost: inventoryLots.originalUnitCost,
+        exchangeRate: inventoryLots.exchangeRate,
+        sourceType: inventoryLots.sourceType,
+        sourceId: inventoryLots.sourceId,
+        // Producto
+        productId: products.id,
+        productCode: products.code,
+        productName: products.name,
+        productDescription: products.description,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
+        // Categoría
+        categoryId: categories.id,
+        categoryName: sql<string>`COALESCE(${categories.name}, 'Sin Categoría')`.as('category_name'),
+        // Unidad
+        unitId: units.id,
+        unitName: units.name,
+        unitShortName: units.shortName,
+        // Almacén
+        warehouseId: warehouses.id,
+        warehouseName: warehouses.name,
+        warehouseAddress: warehouses.address,
+        // Moneda original
+        currencyCode: currencies.code,
+        currencySymbol: currencies.symbol,
+      })
+      .from(inventoryLots)
+      .innerJoin(products, eq(inventoryLots.productId, products.id))
+      .innerJoin(warehouses, eq(inventoryLots.warehouseId, warehouses.id))
+      .innerJoin(units, eq(products.unitId, units.id))
+      .innerJoin(currencies, eq(inventoryLots.originalCurrencyId, currencies.id))
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(...conditions))
+      .orderBy(asc(products.name), asc(inventoryLots.entryDate));
+
+    // Calcular días en inventario para cada lote
+    const lotsWithAge = lotsData.map(lot => {
+      const entryDateObj = new Date(lot.entryDate);
+      const todayObj = new Date(today);
+      const daysInInventory = Math.floor((todayObj.getTime() - entryDateObj.getTime()) / (1000 * 60 * 60 * 24));
+      const qty = parseFloat(lot.currentQuantity);
+      const unitCost = parseFloat(lot.unitCostBase);
+      const totalCost = qty * unitCost;
+      
+      return {
+        ...lot,
+        currentQuantity: qty,
+        unitCostBase: unitCost,
+        totalCost,
+        daysInInventory,
+        ageCategory: this.getAgeCategory(daysInInventory),
+      };
+    });
+
+    // Filtrar si solo quiere productos con stock
+    let filteredLots = lotsWithAge;
+    if (options.onlyWithStock) {
+      filteredLots = lotsWithAge.filter(lot => lot.currentQuantity > 0);
+    }
+
+    // ========== 2. AGRUPAR POR PRODUCTO/ALMACÉN ==========
+    const productMap = new Map<string, {
+      productId: number;
+      productCode: string;
+      productName: string;
+      productDescription: string | null;
+      categoryId: number | null;
+      categoryName: string;
+      unitId: number;
+      unitName: string;
+      unitShortName: string;
+      minStock: number;
+      reorderPoint: number | null;
+      warehouseId: number;
+      warehouseName: string;
+      totalQuantity: number;
+      totalCost: number;
+      avgUnitCost: number;
+      lotCount: number;
+      oldestLotDate: string;
+      newestLotDate: string;
+      maxDaysInInventory: number;
+      lots: typeof lotsWithAge;
+    }>();
+
+    filteredLots.forEach(lot => {
+      const key = `${lot.warehouseId}_${lot.productId}`;
+      const existing = productMap.get(key);
+      
+      if (!existing) {
+        productMap.set(key, {
+          productId: lot.productId,
+          productCode: lot.productCode,
+          productName: lot.productName,
+          productDescription: lot.productDescription,
+          categoryId: lot.categoryId,
+          categoryName: lot.categoryName,
+          unitId: lot.unitId,
+          unitName: lot.unitName,
+          unitShortName: lot.unitShortName,
+          minStock: parseFloat(lot.minStock || "0"),
+          reorderPoint: lot.reorderPoint ? parseFloat(lot.reorderPoint) : null,
+          warehouseId: lot.warehouseId,
+          warehouseName: lot.warehouseName,
+          totalQuantity: lot.currentQuantity,
+          totalCost: lot.totalCost,
+          avgUnitCost: lot.unitCostBase,
+          lotCount: 1,
+          oldestLotDate: lot.entryDate,
+          newestLotDate: lot.entryDate,
+          maxDaysInInventory: lot.daysInInventory,
+          lots: [lot],
+        });
+      } else {
+        existing.totalQuantity += lot.currentQuantity;
+        existing.totalCost += lot.totalCost;
+        existing.lotCount++;
+        existing.lots.push(lot);
+        
+        if (lot.entryDate < existing.oldestLotDate) {
+          existing.oldestLotDate = lot.entryDate;
+          existing.maxDaysInInventory = lot.daysInInventory;
+        }
+        if (lot.entryDate > existing.newestLotDate) {
+          existing.newestLotDate = lot.entryDate;
+        }
+      }
+    });
+
+    // Calcular costo promedio ponderado para cada producto
+    productMap.forEach((item) => {
+      item.avgUnitCost = item.totalQuantity > 0 ? item.totalCost / item.totalQuantity : 0;
+    });
+
+    // Convertir a array y filtrar bajo mínimo si aplica
+    let productList = Array.from(productMap.values());
+    
+    if (options.onlyBelowMin) {
+      productList = productList.filter(p => p.totalQuantity < p.minStock);
+    }
+
+    // ========== 3. RESUMEN GENERAL ==========
+    const summary = {
+      reportDate: today,
+      method: "FIFO" as const, // Método de valuación
+      currency: "CUP",
+      totalProducts: new Set(productList.map(p => p.productId)).size,
+      totalSKUs: productList.length, // Producto-almacén
+      totalUnits: productList.reduce((sum, p) => sum + p.totalQuantity, 0),
+      totalValue: productList.reduce((sum, p) => sum + p.totalCost, 0),
+      totalLots: filteredLots.length,
+      avgDaysInInventory: filteredLots.length > 0 
+        ? filteredLots.reduce((sum, l) => sum + l.daysInInventory, 0) / filteredLots.length 
+        : 0,
+      productsWithStock: productList.filter(p => p.totalQuantity > 0).length,
+      productsBelowMin: productList.filter(p => p.totalQuantity < p.minStock).length,
+      productsAtReorder: productList.filter(p => p.reorderPoint && p.totalQuantity <= p.reorderPoint).length,
+    };
+
+    // ========== 4. AGRUPACIONES ==========
+    // Por Almacén
+    const byWarehouse = this.groupInventoryByWarehouse(productList);
+    
+    // Por Categoría
+    const byCategory = this.groupInventoryByCategory(productList);
+    
+    // Por Antigüedad (aging)
+    const byAge = this.groupInventoryByAge(filteredLots);
+
+    // ========== 5. PRODUCTOS DETALLADOS ==========
+    const items = productList.map(p => ({
+      productId: p.productId,
+      productCode: p.productCode,
+      productName: p.productName,
+      categoryName: p.categoryName,
+      unitShortName: p.unitShortName,
+      warehouseId: p.warehouseId,
+      warehouseName: p.warehouseName,
+      quantity: parseFloat(p.totalQuantity.toFixed(2)),
+      avgUnitCost: parseFloat(p.avgUnitCost.toFixed(2)),
+      totalCost: parseFloat(p.totalCost.toFixed(2)),
+      minStock: p.minStock,
+      reorderPoint: p.reorderPoint,
+      lotCount: p.lotCount,
+      oldestLotDate: p.oldestLotDate,
+      maxDaysInInventory: p.maxDaysInInventory,
+      status: this.getStockStatus(p.totalQuantity, p.minStock, p.reorderPoint),
+    }));
+
+    // ========== 6. MOVIMIENTOS (si se solicitan) ==========
+    let movements: any[] | undefined;
+    if (options.includeMovements && options.startDate) {
+      movements = await this.getMovementsForValuation(
+        warehouseFilter,
+        options.startDate,
+        options.endDate || today,
+        options.productId
+      );
+    }
+
+    // ========== 7. KARDEX (si se solicita) ==========
+    let kardex: any[] | undefined;
+    if (options.includeKardex && options.productId) {
+      const kardexResult = await this.getKardex(
+        userId,
+        options.productId,
+        options.warehouseId,
+        options.startDate,
+        options.endDate || today
+      );
+      kardex = kardexResult.movements;
+    }
+
+    return {
+      report: {
+        title: "Informe de Inventario Valorizado",
+        subtitle: `Método de Valuación: FIFO (Primeras Entradas, Primeras Salidas)`,
+        generatedAt: new Date().toISOString(),
+        cutoffDate: today,
+        standard: "NIC 2 - Inventarios",
+      },
+      summary: {
+        ...summary,
+        totalUnits: parseFloat(summary.totalUnits.toFixed(2)),
+        totalValue: parseFloat(summary.totalValue.toFixed(2)),
+        avgDaysInInventory: parseFloat(summary.avgDaysInInventory.toFixed(1)),
+      },
+      byWarehouse,
+      byCategory,
+      byAge,
+      items,
+      ...(movements && { movements }),
+      ...(kardex && { kardex }),
+    };
+  }
+
+  // Helpers para el informe de inventario
+  private getAgeCategory(days: number): string {
+    if (days <= 30) return "0-30 días";
+    if (days <= 60) return "31-60 días";
+    if (days <= 90) return "61-90 días";
+    if (days <= 180) return "91-180 días";
+    return "+180 días";
+  }
+
+  private getStockStatus(quantity: number, minStock: number, reorderPoint: number | null): string {
+    if (quantity <= 0) return "SIN_STOCK";
+    if (quantity < minStock) return "BAJO_MINIMO";
+    if (reorderPoint && quantity <= reorderPoint) return "PUNTO_REORDEN";
+    return "NORMAL";
+  }
+
+  private groupInventoryByWarehouse(productList: any[]) {
+    const map = new Map<number, { warehouseId: number; warehouseName: string; totalUnits: number; totalValue: number; productCount: number }>();
+    
+    productList.forEach(p => {
+      const existing = map.get(p.warehouseId);
+      if (!existing) {
+        map.set(p.warehouseId, {
+          warehouseId: p.warehouseId,
+          warehouseName: p.warehouseName,
+          totalUnits: p.totalQuantity,
+          totalValue: p.totalCost,
+          productCount: 1,
+        });
+      } else {
+        existing.totalUnits += p.totalQuantity;
+        existing.totalValue += p.totalCost;
+        existing.productCount++;
+      }
+    });
+
+    return Array.from(map.values()).map(w => ({
+      ...w,
+      totalUnits: parseFloat(w.totalUnits.toFixed(2)),
+      totalValue: parseFloat(w.totalValue.toFixed(2)),
+    }));
+  }
+
+  private groupInventoryByCategory(productList: any[]) {
+    const map = new Map<number | null, { categoryId: number | null; categoryName: string; totalUnits: number; totalValue: number; productCount: number }>();
+    
+    productList.forEach(p => {
+      const existing = map.get(p.categoryId);
+      if (!existing) {
+        map.set(p.categoryId, {
+          categoryId: p.categoryId,
+          categoryName: p.categoryName,
+          totalUnits: p.totalQuantity,
+          totalValue: p.totalCost,
+          productCount: 1,
+        });
+      } else {
+        existing.totalUnits += p.totalQuantity;
+        existing.totalValue += p.totalCost;
+        existing.productCount++;
+      }
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.totalValue - a.totalValue)
+      .map(c => ({
+        ...c,
+        totalUnits: parseFloat(c.totalUnits.toFixed(2)),
+        totalValue: parseFloat(c.totalValue.toFixed(2)),
+      }));
+  }
+
+  private groupInventoryByAge(lots: any[]) {
+    const categories = ["0-30 días", "31-60 días", "61-90 días", "91-180 días", "+180 días"];
+    const map = new Map<string, { ageCategory: string; totalUnits: number; totalValue: number; lotCount: number }>();
+    
+    // Inicializar todas las categorías
+    categories.forEach(cat => {
+      map.set(cat, { ageCategory: cat, totalUnits: 0, totalValue: 0, lotCount: 0 });
+    });
+
+    lots.forEach(lot => {
+      const existing = map.get(lot.ageCategory)!;
+      existing.totalUnits += lot.currentQuantity;
+      existing.totalValue += lot.totalCost;
+      existing.lotCount++;
+    });
+
+    return categories.map(cat => {
+      const data = map.get(cat)!;
+      return {
+        ...data,
+        totalUnits: parseFloat(data.totalUnits.toFixed(2)),
+        totalValue: parseFloat(data.totalValue.toFixed(2)),
+      };
+    });
+  }
+
+  private async getMovementsForValuation(
+    warehouseIds: number[],
+    startDate: string,
+    endDate: string,
+    productId?: number
+  ) {
+    const conditions: any[] = [
+      inArray(inventoryMovements.warehouseId, warehouseIds),
+      gte(inventoryMovements.createdAt, sql`${startDate}`),
+      lte(inventoryMovements.createdAt, sql`${endDate} 23:59:59`),
+    ];
+
+    if (productId) {
+      conditions.push(eq(inventoryMovements.productId, productId));
+    }
+
+    const movements = await db
+      .select({
+        id: inventoryMovements.id,
+        type: inventoryMovements.type,
+        status: inventoryMovements.status,
+        productId: inventoryMovements.productId,
+        productName: products.name,
+        productCode: products.code,
+        warehouseId: inventoryMovements.warehouseId,
+        warehouseName: warehouses.name,
+        quantity: inventoryMovements.quantity,
+        reference: inventoryMovements.reference,
+        reason: inventoryMovements.reason,
+        createdAt: inventoryMovements.createdAt,
+      })
+      .from(inventoryMovements)
+      .innerJoin(products, eq(inventoryMovements.productId, products.id))
+      .innerJoin(warehouses, eq(inventoryMovements.warehouseId, warehouses.id))
+      .where(and(...conditions))
+      .orderBy(desc(inventoryMovements.createdAt));
+
+    // Calcular resumen de movimientos
+    const entriesCount = movements.filter(m => m.type.includes("ENTRY")).length;
+    const exitsCount = movements.filter(m => m.type.includes("EXIT")).length;
+    const totalEntries = movements
+      .filter(m => m.type.includes("ENTRY"))
+      .reduce((sum, m) => sum + parseFloat(m.quantity), 0);
+    const totalExits = movements
+      .filter(m => m.type.includes("EXIT"))
+      .reduce((sum, m) => sum + parseFloat(m.quantity), 0);
+
+    return {
+      summary: {
+        entriesCount,
+        exitsCount,
+        totalEntries: parseFloat(totalEntries.toFixed(2)),
+        totalExits: parseFloat(totalExits.toFixed(2)),
+        netChange: parseFloat((totalEntries - totalExits).toFixed(2)),
+      },
+      items: movements.map(m => ({
+        ...m,
+        quantity: parseFloat(m.quantity),
+        isEntry: m.type.includes("ENTRY"),
+      })),
+    };
+  }
+
+  private getEmptyInventoryValuation() {
+    return {
+      report: {
+        title: "Informe de Inventario Valorizado",
+        subtitle: "Método de Valuación: FIFO",
+        generatedAt: new Date().toISOString(),
+        cutoffDate: new Date().toISOString().split('T')[0],
+        standard: "NIC 2 - Inventarios",
+      },
+      summary: {
+        reportDate: new Date().toISOString().split('T')[0],
+        method: "FIFO",
+        currency: "CUP",
+        totalProducts: 0,
+        totalSKUs: 0,
+        totalUnits: 0,
+        totalValue: 0,
+        totalLots: 0,
+        avgDaysInInventory: 0,
+        productsWithStock: 0,
+        productsBelowMin: 0,
+        productsAtReorder: 0,
+      },
+      byWarehouse: [],
+      byCategory: [],
+      byAge: [],
+      items: [],
+    };
+  }
+
+  // Exportar informe de inventario a CSV
+  async exportInventoryValuationCSV(userId: number, warehouseId?: number, categoryId?: number): Promise<string> {
+    const report = await this.getInventoryValuation(userId, { warehouseId, categoryId });
+    const lines: string[] = [];
+
+    // Encabezado
+    lines.push(`${report.report.title}`);
+    lines.push(`${report.report.subtitle}`);
+    lines.push(`Generado: ${report.report.generatedAt}`);
+    lines.push(`Fecha de Corte: ${report.summary.reportDate}`);
+    lines.push(`Norma: ${report.report.standard}`);
+    lines.push("");
+
+    // Resumen
+    lines.push("=== RESUMEN ===");
+    lines.push(`Total Productos,${report.summary.totalProducts}`);
+    lines.push(`Total SKUs (Producto-Almacén),${report.summary.totalSKUs}`);
+    lines.push(`Total Unidades,${report.summary.totalUnits}`);
+    lines.push(`Valor Total (CUP),${report.summary.totalValue}`);
+    lines.push(`Total Lotes,${report.summary.totalLots}`);
+    lines.push(`Días Promedio en Inventario,${report.summary.avgDaysInInventory}`);
+    lines.push(`Productos Con Stock,${report.summary.productsWithStock}`);
+    lines.push(`Productos Bajo Mínimo,${report.summary.productsBelowMin}`);
+    lines.push(`Productos en Punto de Reorden,${report.summary.productsAtReorder}`);
+    lines.push("");
+
+    // Por Almacén
+    lines.push("=== POR ALMACÉN ===");
+    lines.push("Almacén,Cantidad Productos,Unidades,Valor (CUP)");
+    report.byWarehouse.forEach(w => {
+      lines.push(`${w.warehouseName},${w.productCount},${w.totalUnits},${w.totalValue}`);
+    });
+    lines.push("");
+
+    // Por Categoría
+    lines.push("=== POR CATEGORÍA ===");
+    lines.push("Categoría,Cantidad Productos,Unidades,Valor (CUP)");
+    report.byCategory.forEach(c => {
+      lines.push(`${c.categoryName},${c.productCount},${c.totalUnits},${c.totalValue}`);
+    });
+    lines.push("");
+
+    // Por Antigüedad
+    lines.push("=== POR ANTIGÜEDAD ===");
+    lines.push("Rango,Lotes,Unidades,Valor (CUP)");
+    report.byAge.forEach(a => {
+      lines.push(`${a.ageCategory},${a.lotCount},${a.totalUnits},${a.totalValue}`);
+    });
+    lines.push("");
+
+    // Detalle de productos
+    lines.push("=== DETALLE DE PRODUCTOS ===");
+    lines.push("Código,Producto,Categoría,Almacén,Unidad,Cantidad,Costo Promedio,Costo Total,Stock Mínimo,Estado,Lotes,Días Máx");
+    report.items.forEach(item => {
+      lines.push(`${item.productCode},${item.productName},${item.categoryName},${item.warehouseName},${item.unitShortName},${item.quantity},${item.avgUnitCost},${item.totalCost},${item.minStock},${item.status},${item.lotCount},${item.maxDaysInInventory}`);
+    });
 
     return lines.join("\n");
   }

@@ -10,6 +10,8 @@ import {
   getKardex,
   getProfitReport,
   exportProfitReportCSV,
+  getInventoryValuation,
+  exportInventoryValuationCSV,
 } from "./reports.controller";
 import {
   getStockReportSchema,
@@ -19,6 +21,8 @@ import {
   getKardexSchema,
   getProfitReportSchema,
   exportProfitReportSchema,
+  getInventoryValuationSchema,
+  exportInventoryValuationSchema,
 } from "./reports.schemas";
 
 const router = Router();
@@ -103,6 +107,29 @@ router.get(
   hasPermission("reports.profit.read"),
   validate(exportProfitReportSchema),
   exportProfitReportCSV
+);
+
+// ========== REPORTE 7: INVENTARIO VALORIZADO (NIC 2) ==========
+// GET /reports/inventory - Informe completo de inventario con valuación FIFO
+// Filtros: warehouseId, categoryId, productId, cutoffDate, onlyWithStock, onlyBelowMin
+// Opciones: groupBy (warehouse|category|supplier|age), includeMovements, includeKardex
+router.get(
+  "/inventory",
+  authMiddleware,
+  hasPermission("reports.stock.valorized"),
+  validate(getInventoryValuationSchema),
+  getInventoryValuation
+);
+
+// ========== EXPORTAR INVENTARIO VALORIZADO ==========
+// GET /reports/inventory/export - Exportar informe de inventario en CSV
+// Filtros: warehouseId, categoryId
+router.get(
+  "/inventory/export",
+  authMiddleware,
+  hasPermission("reports.stock.valorized"),
+  validate(exportInventoryValuationSchema),
+  exportInventoryValuationCSV
 );
 
 export default router;

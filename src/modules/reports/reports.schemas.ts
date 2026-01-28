@@ -64,3 +64,29 @@ export const exportProfitReportSchema = z.object({
     warehouseId: z.string().transform(Number).optional(),
   }),
 });
+
+// ========== INVENTORY VALUATION REPORT (INFORME DE INVENTARIO) ==========
+export const getInventoryValuationSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(),    // Filtro por almacén
+    categoryId: z.string().transform(Number).optional(),     // Filtro por categoría
+    productId: z.string().transform(Number).optional(),      // Filtro por producto específico
+    cutoffDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Corte a fecha
+    onlyWithStock: z.string().transform((val) => val === "true").optional(),   // Solo productos con stock
+    onlyBelowMin: z.string().transform((val) => val === "true").optional(),    // Solo bajo mínimo
+    groupBy: z.enum(["warehouse", "category", "supplier", "age"]).optional(),  // Agrupación principal
+    includeMovements: z.string().transform((val) => val === "true").optional(), // Incluir movimientos del período
+    includeKardex: z.string().transform((val) => val === "true").optional(),   // Incluir kardex por producto
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Para movimientos
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),   // Para movimientos
+  }),
+});
+
+// ========== EXPORT INVENTORY VALUATION ==========
+export const exportInventoryValuationSchema = z.object({
+  query: z.object({
+    warehouseId: z.string().transform(Number).optional(),
+    categoryId: z.string().transform(Number).optional(),
+    format: z.enum(["csv", "excel", "pdf"]).optional().default("csv"),
+  }),
+});

@@ -178,3 +178,81 @@ export const exportProfitReportCSV = async (req: Request, res: Response) => {
     res.status(status).json({ success: false, error: error.message });
   }
 };
+
+// ========== INVENTORY VALUATION (INFORME DE INVENTARIO) ==========
+export const getInventoryValuation = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const {
+      warehouseId,
+      categoryId,
+      productId,
+      cutoffDate,
+      onlyWithStock,
+      onlyBelowMin,
+      groupBy,
+      includeMovements,
+      includeKardex,
+      startDate,
+      endDate,
+    } = req.query as {
+      warehouseId?: number;
+      categoryId?: number;
+      productId?: number;
+      cutoffDate?: string;
+      onlyWithStock?: boolean;
+      onlyBelowMin?: boolean;
+      groupBy?: "warehouse" | "category" | "supplier" | "age";
+      includeMovements?: boolean;
+      includeKardex?: boolean;
+      startDate?: string;
+      endDate?: string;
+    };
+
+    const result = await reportsService.getInventoryValuation(userId, {
+      warehouseId,
+      categoryId,
+      productId,
+      cutoffDate,
+      onlyWithStock,
+      onlyBelowMin,
+      groupBy,
+      includeMovements,
+      includeKardex,
+      startDate,
+      endDate,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error.name === "ForbiddenError" ? 403 : error.name === "NotFoundError" ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message });
+  }
+};
+
+// Export Inventory Valuation CSV
+export const exportInventoryValuationCSV = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const { warehouseId, categoryId } = req.query as {
+      warehouseId?: number;
+      categoryId?: number;
+    };
+
+    const csv = await reportsService.exportInventoryValuationCSV(
+      userId,
+      warehouseId,
+      categoryId
+    );
+
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `inventory_valuation_${today}.csv`;
+    
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
+  } catch (error: any) {
+    const status = error.name === "ForbiddenError" ? 403 : error.name === "NotFoundError" ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message });
+  }
+};
