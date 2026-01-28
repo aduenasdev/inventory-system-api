@@ -13,7 +13,7 @@ export const createPurchaseSchema = z.object({
       z.object({
         productId: z.number().int().positive(),
         quantity: z.number().positive(),
-        unitCost: z.number().positive(),
+        unitCost: z.number().nonnegative().optional(), // Opcional: si no tiene permiso purchases.price, puede omitirlo
       })
     ).min(1, "Debe incluir al menos un producto"),
   }),
@@ -82,5 +82,21 @@ export const getPurchasesReportSchema = z.object({
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido"),
     warehouseId: z.string().transform(Number).optional(),
     limit: z.string().transform(Number).optional(),
+  }),
+});
+
+// Schema para asignar precios a una compra (desbloquear lotes)
+export const assignPricingSchema = z.object({
+  params: z.object({
+    id: z.string().transform(Number),
+  }),
+  body: z.object({
+    currencyId: z.number().int().positive("Debe especificar la moneda de los precios"),
+    pricing: z.array(
+      z.object({
+        detailId: z.number().int().positive("ID del detalle inválido"),
+        unitCost: z.number().positive("El costo unitario debe ser mayor a 0"),
+      })
+    ).min(1, "Debe incluir al menos un precio"),
   }),
 });

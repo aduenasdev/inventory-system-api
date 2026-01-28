@@ -258,7 +258,7 @@ async function main() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
       
-      status ENUM('ACTIVE', 'EXHAUSTED') NOT NULL DEFAULT 'ACTIVE',
+      status ENUM('LOCKED', 'ACTIVE', 'EXHAUSTED') NOT NULL DEFAULT 'ACTIVE',
       
       FOREIGN KEY (product_id) REFERENCES products(id),
       FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
@@ -334,6 +334,7 @@ async function main() {
       total DECIMAL(18, 2) NOT NULL,
       notes TEXT,
       cancellation_reason TEXT,
+      has_pricing BOOLEAN NOT NULL DEFAULT TRUE,
       created_by INT NOT NULL,
       accepted_by INT,
       cancelled_by INT,
@@ -689,6 +690,7 @@ async function main() {
     { name: 'purchases.create', description: 'Crear facturas de compra', group_name: 'purchases' },
     { name: 'purchases.accept', description: 'Aceptar facturas de compra', group_name: 'purchases' },
     { name: 'purchases.cancel', description: 'Cancelar facturas de compra', group_name: 'purchases' },
+    { name: 'purchases.price', description: 'Asignar precios a compras y desbloquear lotes', group_name: 'purchases' },
     { name: 'purchases.backdate', description: 'Consultar tasas de cambio de fechas anteriores para compras retroactivas', group_name: 'purchases' },
 
     // Ventas

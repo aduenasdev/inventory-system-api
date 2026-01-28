@@ -14,9 +14,7 @@ export const createPurchase = async (req: Request, res: Response) => {
     });
 
     res.status(201).json({
-      message: purchase.status === "APPROVED" 
-        ? "Factura de compra creada y aprobada exitosamente. Lotes creados."
-        : "Factura de compra creada exitosamente",
+      message: purchase.message,
       data: purchase,
     });
   } catch (error: any) {
@@ -193,6 +191,37 @@ export const getPurchasesReport = async (req: Request, res: Response) => {
     );
 
     res.json(report);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Asignar precios a una compra (desbloquear lotes)
+export const assignPricing = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = (res.locals.user as any).id;
+    const { pricing, currencyId } = req.body;
+    
+    const result = await purchasesService.assignPricing(
+      Number(id),
+      pricing,
+      currencyId,
+      userId
+    );
+    
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Obtener compras pendientes de precio
+export const getPurchasesPendingPricing = async (req: Request, res: Response) => {
+  try {
+    const userId = (res.locals.user as any).id;
+    const purchases = await purchasesService.getPurchasesPendingPricing(userId);
+    res.json(purchases);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -55,7 +55,10 @@ export const inventoryLots = mysqlTable(
     updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 
     // Estado
-    status: mysqlEnum("status", ["ACTIVE", "EXHAUSTED"]).notNull().default("ACTIVE"),
+    // LOCKED: Lote creado sin precio, no se puede consumir hasta que se asigne precio
+    // ACTIVE: Lote operativo, se puede consumir (vender, trasladar, ajustar)
+    // EXHAUSTED: Lote agotado, cantidad = 0
+    status: mysqlEnum("status", ["LOCKED", "ACTIVE", "EXHAUSTED"]).notNull().default("ACTIVE"),
   },
   (table) => ({
     // Índice para consultas FIFO eficientes

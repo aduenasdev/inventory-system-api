@@ -1,4 +1,4 @@
-import { mysqlTable, serial, int, varchar, date, decimal, text, timestamp, mysqlEnum } from "drizzle-orm/mysql-core";
+import { mysqlTable, serial, int, varchar, date, decimal, text, timestamp, mysqlEnum, boolean } from "drizzle-orm/mysql-core";
 import { warehouses } from "./warehouses";
 import { currencies } from "./currencies";
 import { users } from "./users";
@@ -16,6 +16,9 @@ export const purchases = mysqlTable("purchases", {
   subtotal: decimal("subtotal", { precision: 18, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 18, scale: 2 }).notNull().default("0"),
   notes: text("notes"),
+  
+  // Indica si la compra tiene precios asignados (false = lotes bloqueados)
+  hasPricing: boolean("has_pricing").notNull().default(true),
   
   // Auditoría
   createdBy: int("created_by").notNull().references(() => users.id),

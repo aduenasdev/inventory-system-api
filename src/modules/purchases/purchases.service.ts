@@ -135,6 +135,13 @@ export class PurchasesService {
   }
 
   // Crear factura de compra (con transacción para garantizar consistencia)
+  // FLUJO DE COMPRAS:
+  // 1. Usuario SIN permiso purchases.price: Puede crear compra sin precios (unitCost=0 o no requerido)
+  //    - Se aprueba automáticamente pero con lotes LOCKED
+  //    - Stock visible pero no consumible
+  // 2. Usuario CON permiso purchases.price: Puede crear compra con precios (flujo normal)
+  //    - Se aprueba automáticamente con lotes ACTIVE si tiene purchases.accept
+  // 3. Para desbloquear lotes: Usar endpoint /purchases/:id/pricing
   async createPurchase(data: {
     supplierName?: string;
     supplierPhone?: string;
@@ -146,7 +153,7 @@ export class PurchasesService {
     details: Array<{
       productId: number;
       quantity: number;
-      unitCost: number;
+      unitCost?: number; // Opcional si no tiene permiso purchases.price
     }>;
     userId: number;
     userPermissions: string[];
@@ -156,8 +163,9 @@ export class PurchasesService {
     await this.validateCurrencyExists(data.currencyId);
     await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
 
-    // Verificar si puede auto-aprobar
-    const canAutoApprove = data.autoApprove && data.userPermissions.includes("purchases.accept");
+    // Verificar permisos
+    const canSetPrice = data.userPermissions.includes("purchases.price");
+    const canAccept = data.userPermissions.includes("purchases.accept");
     
     // Fecha de la compra: usar la proporcionada o la fecha actual
     const today = getTodayDateString();
@@ -168,13 +176,28 @@ export class PurchasesService {
       throw new ValidationError("No se pueden registrar compras con fecha futura");
     }
 
-    // Obtener tasa de cambio de la moneda de la factura a CUP (usando la fecha de la compra)
-    // Si no existe tasa para esa fecha, lanzará error
-    const exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, purchaseDate);
-
     // Validar que hay al menos un detalle
     if (!data.details || data.details.length === 0) {
       throw new ValidationError("La factura debe tener al menos un producto");
+    }
+
+    // Determinar si la compra tiene precios
+    const hasAnyPrice = data.details.some(d => d.unitCost !== undefined && d.unitCost > 0);
+    const allHavePrices = data.details.every(d => d.unitCost !== undefined && d.unitCost > 0);
+    
+    // Si tiene precios pero no tiene permiso, rechazar
+    if (hasAnyPrice && !canSetPrice) {
+      throw new ForbiddenError("No tienes permiso para asignar precios a las compras. Crea la compra sin precios y un usuario autorizado los asignará después.");
+    }
+    
+    // Determinar si se crearán lotes bloqueados
+    // Lotes LOCKED: cuando no tiene todos los precios O cuando no tiene permiso de precio
+    const willCreateLockedLots = !allHavePrices || !canSetPrice;
+    
+    // Para compras con lotes bloqueados, no se requiere tasa de cambio aún
+    let exchangeRateToCUP = 1;
+    if (!willCreateLockedLots) {
+      exchangeRateToCUP = await this.getExchangeRateToCUP(data.currencyId, purchaseDate);
     }
 
     // Validar productos y preparar detalles (fuera de transacción)
@@ -186,8 +209,9 @@ export class PurchasesService {
           throw new ValidationError(`La cantidad del producto en línea ${index + 1} debe ser mayor a 0`);
         }
 
-        // Validar costo mayor o igual a 0
-        if (detail.unitCost < 0) {
+        // Validar costo si se proporciona
+        const unitCost = detail.unitCost ?? 0;
+        if (unitCost < 0) {
           throw new ValidationError(`El costo unitario del producto en línea ${index + 1} no puede ser negativo`);
         }
 
@@ -201,18 +225,18 @@ export class PurchasesService {
           throw new NotFoundError(`Producto con ID ${detail.productId} no encontrado`);
         }
 
-        // El costo convertido a CUP
-        const convertedUnitCost = detail.unitCost * exchangeRateToCUP;
-        const lineSubtotal = detail.unitCost * detail.quantity;
+        // El costo convertido a CUP (0 si no tiene precio)
+        const convertedUnitCost = unitCost * exchangeRateToCUP;
+        const lineSubtotal = unitCost * detail.quantity;
         subtotal += lineSubtotal;
 
         return {
-          lineIndex: index, // Para identificar cada línea únicamente
+          lineIndex: index,
           productId: detail.productId,
           quantity: detail.quantity.toString(),
-          unitCost: detail.unitCost.toString(),
+          unitCost: unitCost.toString(),
           originalCurrencyId: data.currencyId,
-          exchangeRateUsed: exchangeRateToCUP.toString(),
+          exchangeRateUsed: willCreateLockedLots ? "1" : exchangeRateToCUP.toString(),
           convertedUnitCost: convertedUnitCost.toString(),
           subtotal: lineSubtotal.toString(),
         };
@@ -224,7 +248,13 @@ export class PurchasesService {
       // Generar número de factura dentro de transacción (con lock)
       const invoiceNumber = await this.generateInvoiceNumber(tx);
 
-      // Crear factura (PENDING o APPROVED según autoApprove)
+      // Determinar estado inicial:
+      // - Si tiene precios completos Y puede aprobar: APPROVED
+      // - Si no tiene precios (lotes LOCKED): APPROVED (pero con lotes bloqueados)
+      // - Si tiene precios pero no puede aprobar: PENDING
+      const shouldApprove = willCreateLockedLots || (data.autoApprove && canAccept);
+      
+      // Crear factura
       const [purchase] = (await tx.insert(purchases).values({
         invoiceNumber,
         supplierName: data.supplierName || null,
@@ -232,13 +262,14 @@ export class PurchasesService {
         date: sql`${purchaseDate}`,
         warehouseId: data.warehouseId,
         currencyId: data.currencyId,
-        status: canAutoApprove ? "APPROVED" : "PENDING",
+        status: shouldApprove ? "APPROVED" : "PENDING",
         subtotal: subtotal.toString(),
         total: subtotal.toString(),
         notes: data.notes || null,
+        hasPricing: !willCreateLockedLots, // false si los lotes estarán bloqueados
         createdBy: data.userId,
-        acceptedBy: canAutoApprove ? data.userId : null,
-        acceptedAt: canAutoApprove ? new Date() : null,
+        acceptedBy: shouldApprove ? data.userId : null,
+        acceptedAt: shouldApprove ? new Date() : null,
       })) as any;
 
       const purchaseId = purchase.insertId;
@@ -254,8 +285,8 @@ export class PurchasesService {
         insertedDetailIds.push(insertResult.insertId);
       }
 
-      // Si es auto-aprobada, crear lotes y movimientos inmediatamente
-      if (canAutoApprove) {
+      // Crear lotes (LOCKED o ACTIVE según tenga precios)
+      if (shouldApprove) {
         for (let i = 0; i < detailsProcessed.length; i++) {
           const detail = detailsProcessed[i];
           const detailId = insertedDetailIds[i];
@@ -264,11 +295,10 @@ export class PurchasesService {
           const quantity = parseFloat(detail.quantity);
           const originalUnitCost = parseFloat(detail.unitCost);
           const exchangeRate = parseFloat(detail.exchangeRateUsed);
-          const unitCostBase = parseFloat(detail.convertedUnitCost); // Usar el ya calculado
+          const unitCostBase = parseFloat(detail.convertedUnitCost);
 
-          // Crear lote de inventario (pasando tx para atomicidad)
-          // NOTA: entryDate usa la fecha de HOY (entrada real al almacén), no la fecha de compra
-          // La fecha de compra solo afecta la tasa de cambio, no el orden FIFO
+          // Crear lote de inventario
+          // Si willCreateLockedLots, el lote se crea en estado LOCKED
           const lotId = await lotService.createLot({
             productId: detail.productId,
             warehouseId: data.warehouseId,
@@ -276,13 +306,14 @@ export class PurchasesService {
             originalCurrencyId: detail.originalCurrencyId,
             originalUnitCost,
             exchangeRate,
-            unitCostBase, // Pasar costo ya convertido para evitar recálculo
+            unitCostBase,
             sourceType: "PURCHASE",
             sourceId: purchaseId,
-            entryDate: today, // Fecha real de entrada (HOY), no fecha contable de compra
+            entryDate: today,
+            isLocked: willCreateLockedLots, // LOCKED si no tiene precios
           }, lineNumber, tx);
 
-          // Actualizar el detalle con la referencia al lote (usando ID directo)
+          // Actualizar el detalle con la referencia al lote
           await tx
             .update(purchasesDetail)
             .set({ lotId })
@@ -291,15 +322,25 @@ export class PurchasesService {
           // Crear movimiento de inventario
           await tx.insert(inventoryMovements).values({
             type: "INVOICE_ENTRY",
-            status: "APPROVED",
+            status: willCreateLockedLots ? "PENDING" : "APPROVED", // PENDING si lotes bloqueados
             warehouseId: data.warehouseId,
             productId: detail.productId,
             quantity: detail.quantity,
             reference: invoiceNumber,
-            reason: `Entrada por factura ${invoiceNumber}`,
+            reason: willCreateLockedLots 
+              ? `Entrada pendiente de precio por factura ${invoiceNumber}`
+              : `Entrada por factura ${invoiceNumber}`,
             lotId,
           });
         }
+      }
+
+      // Mensaje de respuesta según el caso
+      let message = "Factura de compra creada exitosamente";
+      if (shouldApprove && willCreateLockedLots) {
+        message = "Factura creada con lotes bloqueados. Un usuario autorizado debe asignar los precios para desbloquear el inventario.";
+      } else if (shouldApprove) {
+        message = "Factura de compra creada y aprobada exitosamente. Lotes creados.";
       }
 
       return { 
@@ -307,7 +348,10 @@ export class PurchasesService {
         invoiceNumber, 
         subtotal, 
         total: subtotal,
-        status: canAutoApprove ? "APPROVED" : "PENDING"
+        status: shouldApprove ? "APPROVED" : "PENDING",
+        hasPricing: !willCreateLockedLots,
+        lotsLocked: willCreateLockedLots,
+        message,
       };
     });
   }
@@ -327,6 +371,7 @@ export class PurchasesService {
         currencyCode: currencies.code,
         currencySymbol: currencies.symbol,
         status: purchases.status,
+        hasPricing: purchases.hasPricing,
         cancellationReason: purchases.cancellationReason,
         subtotal: purchases.subtotal,
         total: purchases.total,
@@ -1092,5 +1137,146 @@ export class PurchasesService {
         totalValue: parseFloat(p.totalValue),
       })),
     };
+  }
+
+  // ========== ASIGNAR PRECIOS A COMPRA (DESBLOQUEAR LOTES) ==========
+  // Endpoint para que usuarios con permiso purchases.price asignen costos
+  // y desbloqueen los lotes que estaban en estado LOCKED
+  async assignPricing(
+    purchaseId: number,
+    pricing: Array<{
+      detailId: number;
+      unitCost: number;
+    }>,
+    currencyId: number,
+    userId: number
+  ) {
+    // Obtener la compra
+    const purchase = await this.getPurchaseByIdInternal(purchaseId);
+    
+    // Validar que el usuario pertenece al almacén de la compra
+    await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
+    
+    // Validar que la compra no tiene precios aún
+    if (purchase.hasPricing) {
+      throw new ConflictError("Esta compra ya tiene precios asignados");
+    }
+    
+    // Validar que la compra está aprobada (con lotes bloqueados)
+    if (purchase.status !== "APPROVED") {
+      throw new ValidationError("Solo se pueden asignar precios a compras aprobadas con lotes bloqueados");
+    }
+    
+    // Obtener fecha de hoy para tasa de cambio
+    const today = getTodayDateString();
+    
+    // Obtener tasa de cambio
+    const exchangeRateToCUP = await this.getExchangeRateToCUP(currencyId, today);
+    
+    // Crear mapa de precios por detailId
+    const pricingMap = new Map(pricing.map(p => [p.detailId, p.unitCost]));
+    
+    // Validar que todos los detalles tienen precio
+    for (const detail of purchase.details) {
+      if (!pricingMap.has(detail.id)) {
+        throw new ValidationError(`Falta precio para el detalle ID ${detail.id}`);
+      }
+      const cost = pricingMap.get(detail.id)!;
+      if (cost <= 0) {
+        throw new ValidationError(`El costo del detalle ID ${detail.id} debe ser mayor a 0`);
+      }
+    }
+    
+    // Ejecutar actualización en transacción
+    return await db.transaction(async (tx) => {
+      let newSubtotal = 0;
+      
+      for (const detail of purchase.details) {
+        const unitCost = pricingMap.get(detail.id)!;
+        const quantity = parseFloat(detail.quantity);
+        const convertedUnitCost = unitCost * exchangeRateToCUP;
+        const lineSubtotal = unitCost * quantity;
+        newSubtotal += lineSubtotal;
+        
+        // Actualizar detalle con precios
+        await tx
+          .update(purchasesDetail)
+          .set({
+            unitCost: unitCost.toString(),
+            originalCurrencyId: currencyId,
+            exchangeRateUsed: exchangeRateToCUP.toString(),
+            convertedUnitCost: convertedUnitCost.toString(),
+            subtotal: lineSubtotal.toString(),
+          })
+          .where(eq(purchasesDetail.id, detail.id));
+        
+        // Desbloquear el lote si existe
+        if (detail.lotId) {
+          await lotService.unlockLot(
+            detail.lotId,
+            currencyId,
+            unitCost,
+            exchangeRateToCUP,
+            tx
+          );
+          
+          // Actualizar movimiento de inventario a APPROVED
+          await tx
+            .update(inventoryMovements)
+            .set({
+              status: "APPROVED",
+              reason: `Entrada por factura ${purchase.invoiceNumber}`,
+            })
+            .where(
+              and(
+                eq(inventoryMovements.lotId, detail.lotId),
+                eq(inventoryMovements.reference, purchase.invoiceNumber)
+              )
+            );
+        }
+      }
+      
+      // Actualizar la compra con los nuevos totales y marcar como con precios
+      await tx
+        .update(purchases)
+        .set({
+          currencyId, // Actualizar moneda de la factura
+          subtotal: newSubtotal.toString(),
+          total: newSubtotal.toString(),
+          hasPricing: true,
+        })
+        .where(eq(purchases.id, purchaseId));
+    });
+    
+    // Retornar compra actualizada
+    const updatedPurchase = await this.getPurchaseById(purchaseId, userId);
+    return {
+      message: "Precios asignados exitosamente. Lotes desbloqueados y disponibles para operaciones.",
+      data: updatedPurchase,
+    };
+  }
+
+  // Obtener compras pendientes de precio (lotes bloqueados)
+  async getPurchasesPendingPricing(userId: number) {
+    // Obtener almacenes del usuario
+    const userWarehousesData = await db
+      .select({ warehouseId: userWarehouses.warehouseId })
+      .from(userWarehouses)
+      .where(eq(userWarehouses.userId, userId));
+
+    const assignedWarehouseIds = userWarehousesData.map(uw => uw.warehouseId);
+
+    if (assignedWarehouseIds.length === 0) {
+      return [];
+    }
+
+    // Obtener compras aprobadas sin precios
+    return await this.getPurchasesWithUserNames(
+      and(
+        eq(purchases.status, "APPROVED"),
+        eq(purchases.hasPricing, false),
+        inArray(purchases.warehouseId, assignedWarehouseIds)
+      )
+    );
   }
 }

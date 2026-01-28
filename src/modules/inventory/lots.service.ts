@@ -20,6 +20,7 @@ export interface CreateLotData {
   sourceId?: number;
   sourceLotId?: number;
   entryDate: string;
+  isLocked?: boolean; // Si true, crea el lote en estado LOCKED (sin precio asignado)
 }
 
 export interface ConsumeLotResult {
@@ -54,14 +55,22 @@ export class LotService {
 
   /**
    * Crea un nuevo lote de inventario
+   * @param data - Datos del lote
+   * @param lineNumber - Número de línea (para generar código único)
    * @param tx - Transacción opcional para garantizar atomicidad
+   * 
+   * Si isLocked=true, el lote se crea en estado LOCKED (no consumible hasta asignar precio)
    */
   async createLot(data: CreateLotData, lineNumber?: number, tx?: any): Promise<number> {
     const database = tx || db;
     const lotCode = await this.generateLotCode(data.sourceType, data.sourceId, lineNumber);
     
     // Usar costo base ya calculado si viene, o calcularlo
-    const unitCostBase = data.unitCostBase ?? (data.originalUnitCost * data.exchangeRate);
+    // Si está bloqueado (sin precio), el costo será 0
+    const unitCostBase = data.isLocked ? 0 : (data.unitCostBase ?? (data.originalUnitCost * data.exchangeRate));
+    
+    // Determinar estado inicial
+    const initialStatus = data.isLocked ? "LOCKED" : "ACTIVE";
 
     const [result] = (await database.insert(inventoryLots).values({
       lotCode,
@@ -71,16 +80,17 @@ export class LotService {
       currentQuantity: data.quantity.toString(),
       unitCostBase: unitCostBase.toString(),
       originalCurrencyId: data.originalCurrencyId,
-      originalUnitCost: data.originalUnitCost.toString(),
-      exchangeRate: data.exchangeRate.toString(),
+      originalUnitCost: data.isLocked ? "0" : data.originalUnitCost.toString(),
+      exchangeRate: data.isLocked ? "1" : data.exchangeRate.toString(),
       sourceType: data.sourceType,
       sourceId: data.sourceId || null,
       sourceLotId: data.sourceLotId || null,
       entryDate: new Date(data.entryDate),
-      status: "ACTIVE",
+      status: initialStatus,
     })) as any;
 
     // Actualizar caché de inventario (en la misma transacción si existe)
+    // Incluso los lotes LOCKED suman al inventario (las cantidades son visibles)
     await this.updateInventoryCache(data.warehouseId, data.productId, data.quantity, database);
 
     return result.insertId;
@@ -498,6 +508,96 @@ export class LotService {
       );
 
     return lots.reduce((sum, lot) => sum + parseFloat(lot.currentQuantity), 0);
+  }
+
+  /**
+   * Obtener stock disponible de un producto (solo lotes ACTIVE, excluye LOCKED)
+   */
+  async getAvailableStockFromLots(warehouseId: number, productId: number): Promise<number> {
+    const lots = await db
+      .select({ currentQuantity: inventoryLots.currentQuantity })
+      .from(inventoryLots)
+      .where(
+        and(
+          eq(inventoryLots.warehouseId, warehouseId),
+          eq(inventoryLots.productId, productId),
+          eq(inventoryLots.status, "ACTIVE")
+        )
+      );
+
+    return lots.reduce((sum, lot) => sum + parseFloat(lot.currentQuantity), 0);
+  }
+
+  /**
+   * Desbloquear un lote asignándole precio
+   * Cambia el estado de LOCKED a ACTIVE
+   * @param lotId - ID del lote a desbloquear
+   * @param originalCurrencyId - ID de la moneda original del costo
+   * @param originalUnitCost - Costo unitario en moneda original
+   * @param exchangeRate - Tasa de cambio usada
+   * @param tx - Transacción opcional
+   */
+  async unlockLot(
+    lotId: number,
+    originalCurrencyId: number,
+    originalUnitCost: number,
+    exchangeRate: number,
+    tx?: any
+  ): Promise<void> {
+    const database = tx || db;
+    
+    // Verificar que el lote existe y está en LOCKED
+    const [lot] = await database
+      .select()
+      .from(inventoryLots)
+      .where(eq(inventoryLots.id, lotId));
+    
+    if (!lot) {
+      throw new NotFoundError(`Lote con ID ${lotId} no encontrado`);
+    }
+    
+    if (lot.status !== "LOCKED") {
+      throw new ValidationError(`El lote ${lot.lotCode} no está bloqueado. Estado actual: ${lot.status}`);
+    }
+    
+    // Calcular costo base en CUP
+    const unitCostBase = originalUnitCost * exchangeRate;
+    
+    // Actualizar lote con precio y cambiar a ACTIVE
+    await database
+      .update(inventoryLots)
+      .set({
+        originalCurrencyId,
+        originalUnitCost: originalUnitCost.toString(),
+        exchangeRate: exchangeRate.toString(),
+        unitCostBase: unitCostBase.toString(),
+        status: "ACTIVE",
+      })
+      .where(eq(inventoryLots.id, lotId));
+  }
+
+  /**
+   * Obtener lotes bloqueados de una compra
+   */
+  async getLockedLotsByPurchase(purchaseId: number) {
+    return await db
+      .select()
+      .from(inventoryLots)
+      .where(
+        and(
+          eq(inventoryLots.sourceType, "PURCHASE"),
+          eq(inventoryLots.sourceId, purchaseId),
+          eq(inventoryLots.status, "LOCKED")
+        )
+      );
+  }
+
+  /**
+   * Verificar si una compra tiene lotes bloqueados
+   */
+  async hasLockedLots(purchaseId: number): Promise<boolean> {
+    const lockedLots = await this.getLockedLotsByPurchase(purchaseId);
+    return lockedLots.length > 0;
   }
 }
 

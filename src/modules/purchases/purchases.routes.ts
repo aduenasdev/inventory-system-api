@@ -16,6 +16,8 @@ import {
   checkExchangeRates,
   getCategories,
   getUnits,
+  assignPricing,
+  getPurchasesPendingPricing,
 } from "./purchases.controller";
 import {
   createPurchaseSchema,
@@ -27,6 +29,7 @@ import {
   getAllPurchasesSchema,
   getProductsSchema,
   checkExchangeRatesSchema,
+  assignPricingSchema,
 } from "./purchases.schemas";
 
 const router = Router();
@@ -109,6 +112,14 @@ router.get(
   getCancelledPurchasesReport
 );
 
+// GET /purchases/pending-pricing - Compras pendientes de precio (lotes bloqueados)
+router.get(
+  "/pending-pricing",
+  authMiddleware,
+  hasPermission("purchases.price"),
+  getPurchasesPendingPricing
+);
+
 // GET /purchases/report - Reporte completo de compras
 router.get(
   "/report",
@@ -152,6 +163,15 @@ router.post(
   hasPermission("purchases.cancel"),
   validate(cancelPurchaseSchema),
   cancelPurchase
+);
+
+// PUT /purchases/:id/pricing - Asignar precios a una compra (desbloquear lotes)
+router.put(
+  "/:id/pricing",
+  authMiddleware,
+  hasPermission("purchases.price"),
+  validate(assignPricingSchema),
+  assignPricing
 );
 
 export default router;
