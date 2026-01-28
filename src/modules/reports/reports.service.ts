@@ -1057,22 +1057,23 @@ export class ReportsService {
       endDate?: string;
     }
   ) {
-    // Obtener almacenes permitidos
-    const allowedWarehouses = await this.getUserWarehouses(userId);
-    if (allowedWarehouses.length === 0) {
-      return this.getEmptyInventoryValuation();
-    }
+    try {
+      // Obtener almacenes permitidos
+      const allowedWarehouses = await this.getUserWarehouses(userId);
+      if (allowedWarehouses.length === 0) {
+        return this.getEmptyInventoryValuation();
+      }
 
-    // Validar acceso si especifica almacén
-    if (options.warehouseId && !allowedWarehouses.includes(options.warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
-    }
+      // Validar acceso si especifica almacén
+      if (options.warehouseId && !allowedWarehouses.includes(options.warehouseId)) {
+        throw new ForbiddenError("No tienes acceso a este almacén");
+      }
 
-    const warehouseFilter = options.warehouseId 
-      ? [options.warehouseId] 
-      : allowedWarehouses;
+      const warehouseFilter = options.warehouseId 
+        ? [options.warehouseId] 
+        : allowedWarehouses;
 
-    const today = options.cutoffDate || new Date().toISOString().split('T')[0];
+      const today = options.cutoffDate || new Date().toISOString().split('T')[0];
 
     // ========== 1. OBTENER LOTES ACTIVOS (excluir LOCKED) ==========
     const conditions: any[] = [
@@ -1124,7 +1125,7 @@ export class ReportsService {
         // Almacén
         warehouseId: warehouses.id,
         warehouseName: warehouses.name,
-        warehouseAddress: warehouses.address,
+        warehouseDireccion: warehouses.direccion,
         // Moneda original
         currencyCode: currencies.code,
         currencySymbol: currencies.symbol,
@@ -1143,12 +1144,36 @@ export class ReportsService {
       const entryDateObj = new Date(lot.entryDate);
       const todayObj = new Date(today);
       const daysInInventory = Math.floor((todayObj.getTime() - entryDateObj.getTime()) / (1000 * 60 * 60 * 24));
-      const qty = parseFloat(lot.currentQuantity);
-      const unitCost = parseFloat(lot.unitCostBase);
+      const qty = parseFloat(lot.currentQuantity || "0");
+      const unitCost = parseFloat(lot.unitCostBase || "0");
       const totalCost = qty * unitCost;
       
       return {
-        ...lot,
+        lotId: lot.lotId,
+        lotCode: lot.lotCode,
+        entryDate: lot.entryDate,
+        initialQuantity: lot.initialQuantity,
+        originalCurrencyId: lot.originalCurrencyId,
+        originalUnitCost: lot.originalUnitCost,
+        exchangeRate: lot.exchangeRate,
+        sourceType: lot.sourceType,
+        sourceId: lot.sourceId,
+        productId: lot.productId,
+        productCode: lot.productCode,
+        productName: lot.productName,
+        productDescription: lot.productDescription,
+        minStock: lot.minStock,
+        reorderPoint: lot.reorderPoint,
+        categoryId: lot.categoryId,
+        categoryName: lot.categoryName,
+        unitId: lot.unitId,
+        unitName: lot.unitName,
+        unitShortName: lot.unitShortName,
+        warehouseId: lot.warehouseId,
+        warehouseName: lot.warehouseName,
+        warehouseDireccion: lot.warehouseDireccion,
+        currencyCode: lot.currencyCode,
+        currencySymbol: lot.currencySymbol,
         currentQuantity: qty,
         unitCostBase: unitCost,
         totalCost,
@@ -1316,7 +1341,8 @@ export class ReportsService {
       kardex = kardexResult.movements;
     }
 
-    return {
+    // Construir resultado base
+    const result: any = {
       report: {
         title: "Informe de Inventario Valorizado",
         subtitle: `Método de Valuación: FIFO (Primeras Entradas, Primeras Salidas)`,
@@ -1325,18 +1351,38 @@ export class ReportsService {
         standard: "NIC 2 - Inventarios",
       },
       summary: {
-        ...summary,
-        totalUnits: parseFloat(summary.totalUnits.toFixed(2)),
-        totalValue: parseFloat(summary.totalValue.toFixed(2)),
-        avgDaysInInventory: parseFloat(summary.avgDaysInInventory.toFixed(1)),
+        reportDate: summary.reportDate,
+        method: summary.method,
+        currency: summary.currency,
+        totalProducts: summary.totalProducts,
+        totalSKUs: summary.totalSKUs,
+        totalUnits: parseFloat((summary.totalUnits || 0).toFixed(2)),
+        totalValue: parseFloat((summary.totalValue || 0).toFixed(2)),
+        totalLots: summary.totalLots,
+        avgDaysInInventory: parseFloat((summary.avgDaysInInventory || 0).toFixed(1)),
+        productsWithStock: summary.productsWithStock,
+        productsBelowMin: summary.productsBelowMin,
+        productsAtReorder: summary.productsAtReorder,
       },
-      byWarehouse,
-      byCategory,
-      byAge,
-      items,
-      ...(movements && { movements }),
-      ...(kardex && { kardex }),
+      byWarehouse: byWarehouse || [],
+      byCategory: byCategory || [],
+      byAge: byAge || [],
+      items: items || [],
     };
+
+    // Agregar movimientos y kardex si existen
+    if (movements) {
+      result.movements = movements;
+    }
+    if (kardex) {
+      result.kardex = kardex;
+    }
+
+    return result;
+    } catch (error: any) {
+      console.error("Error en getInventoryValuation:", error);
+      throw error;
+    }
   }
 
   // Helpers para el informe de inventario

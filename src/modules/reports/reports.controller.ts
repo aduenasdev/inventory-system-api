@@ -183,44 +183,32 @@ export const exportProfitReportCSV = async (req: Request, res: Response) => {
 export const getInventoryValuation = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
-    const {
-      warehouseId,
-      categoryId,
-      productId,
-      cutoffDate,
-      onlyWithStock,
-      onlyBelowMin,
-      groupBy,
-      includeMovements,
-      includeKardex,
-      startDate,
-      endDate,
-    } = req.query as {
-      warehouseId?: number;
-      categoryId?: number;
-      productId?: number;
+    const query = req.query as {
+      warehouseId?: string;
+      categoryId?: string;
+      productId?: string;
       cutoffDate?: string;
-      onlyWithStock?: boolean;
-      onlyBelowMin?: boolean;
-      groupBy?: "warehouse" | "category" | "supplier" | "age";
-      includeMovements?: boolean;
-      includeKardex?: boolean;
+      onlyWithStock?: string;
+      onlyBelowMin?: string;
+      groupBy?: string;
+      includeMovements?: string;
+      includeKardex?: string;
       startDate?: string;
       endDate?: string;
     };
 
     const result = await reportsService.getInventoryValuation(userId, {
-      warehouseId,
-      categoryId,
-      productId,
-      cutoffDate,
-      onlyWithStock,
-      onlyBelowMin,
-      groupBy,
-      includeMovements,
-      includeKardex,
-      startDate,
-      endDate,
+      warehouseId: query.warehouseId ? Number(query.warehouseId) : undefined,
+      categoryId: query.categoryId ? Number(query.categoryId) : undefined,
+      productId: query.productId ? Number(query.productId) : undefined,
+      cutoffDate: query.cutoffDate,
+      onlyWithStock: query.onlyWithStock === "true",
+      onlyBelowMin: query.onlyBelowMin === "true",
+      groupBy: query.groupBy as "warehouse" | "category" | "supplier" | "age" | undefined,
+      includeMovements: query.includeMovements === "true",
+      includeKardex: query.includeKardex === "true",
+      startDate: query.startDate,
+      endDate: query.endDate,
     });
 
     res.json({ success: true, data: result });
@@ -234,15 +222,15 @@ export const getInventoryValuation = async (req: Request, res: Response) => {
 export const exportInventoryValuationCSV = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
-    const { warehouseId, categoryId } = req.query as {
-      warehouseId?: number;
-      categoryId?: number;
+    const query = req.query as {
+      warehouseId?: string;
+      categoryId?: string;
     };
 
     const csv = await reportsService.exportInventoryValuationCSV(
       userId,
-      warehouseId,
-      categoryId
+      query.warehouseId ? Number(query.warehouseId) : undefined,
+      query.categoryId ? Number(query.categoryId) : undefined
     );
 
     const today = new Date().toISOString().split('T')[0];
