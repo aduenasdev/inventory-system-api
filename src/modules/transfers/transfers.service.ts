@@ -162,6 +162,8 @@ export class TransfersService {
         unitId: products.unitId,
         unitName: units.name,
         unitShortName: units.shortName,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
         availableStock: sql<string>`SUM(${inventoryLots.currentQuantity})`.as('available_stock'),
       })
       .from(inventoryLots)
@@ -456,6 +458,7 @@ export class TransfersService {
         quantity: transfersDetail.quantity,
         unitName: units.name,
         unitShortName: units.shortName,
+        minStock: products.minStock,
       })
       .from(transfersDetail)
       .innerJoin(products, eq(transfersDetail.productId, products.id))

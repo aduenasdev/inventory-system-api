@@ -223,7 +223,8 @@ export class ReportsService {
   }
 
   // ========== REPORTE 3: PRODUCTOS SIN STOCK / BAJO MÍNIMO ==========
-  async getLowStock(userId: number, warehouseId?: number, minThreshold: number = 10) {
+  // Ahora usa el minStock configurado en cada producto
+  async getLowStock(userId: number, warehouseId?: number, useProductMinStock: boolean = true) {
     // Obtener almacenes permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
@@ -235,8 +236,8 @@ export class ReportsService {
       throw new ForbiddenError("No tienes acceso a este almacén");
     }
 
-    // Obtener productos con stock bajo
-    const lowStockLots = await db
+    // Obtener stock agrupado por almacén y producto
+    const stockData = await db
       .select({
         warehouseId: inventoryLots.warehouseId,
         productId: inventoryLots.productId,
@@ -244,7 +245,9 @@ export class ReportsService {
         productCode: products.code,
         warehouseName: warehouses.name,
         categoryName: categories.name,
-        quantity: sql<string>`SUM(${inventoryLots.currentQuantity})`.as('total_quantity'),
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
+        currentStock: sql<string>`SUM(${inventoryLots.currentQuantity})`.as('current_stock'),
       })
       .from(inventoryLots)
       .innerJoin(products, eq(inventoryLots.productId, products.id))
@@ -252,23 +255,65 @@ export class ReportsService {
       .leftJoin(categories, eq(products.categoryId, categories.id))
       .where(
         and(
+          eq(inventoryLots.status, "ACTIVE"),
           warehouseId 
             ? eq(inventoryLots.warehouseId, warehouseId)
-            : inArray(inventoryLots.warehouseId, allowedWarehouses),
-          sql`${inventoryLots.currentQuantity} < ${minThreshold}` // Stock bajo
+            : inArray(inventoryLots.warehouseId, allowedWarehouses)
         )
       )
       .groupBy(inventoryLots.warehouseId, inventoryLots.productId, products.id, warehouses.id, categories.id);
 
-    const allProducts = lowStockLots.map((lot) => ({
-      ...lot,
-      quantity: lot.quantity,
-      status: "LOW_STOCK",
-    }));
+    // Filtrar productos con stock bajo según su minStock configurado
+    const lowStockProducts = stockData
+      .filter(item => {
+        const currentStock = parseFloat(item.currentStock);
+        const minStock = parseFloat(item.minStock || "0");
+        return currentStock <= minStock;
+      })
+      .map(item => {
+        const currentStock = parseFloat(item.currentStock);
+        const minStock = parseFloat(item.minStock || "0");
+        const reorderPoint = item.reorderPoint ? parseFloat(item.reorderPoint) : null;
+        
+        let status = "OK";
+        if (currentStock <= 0) {
+          status = "OUT_OF_STOCK";
+        } else if (currentStock <= minStock) {
+          status = "LOW_STOCK";
+        } else if (reorderPoint && currentStock <= reorderPoint) {
+          status = "REORDER_NEEDED";
+        }
+
+        return {
+          warehouseId: item.warehouseId,
+          warehouseName: item.warehouseName,
+          productId: item.productId,
+          productName: item.productName,
+          productCode: item.productCode,
+          categoryName: item.categoryName,
+          currentStock: item.currentStock,
+          minStock: item.minStock || "0",
+          reorderPoint: item.reorderPoint,
+          deficit: (minStock - currentStock).toFixed(2),
+          status,
+        };
+      })
+      .sort((a, b) => {
+        // Ordenar: OUT_OF_STOCK primero, luego LOW_STOCK, luego por déficit
+        const statusOrder: Record<string, number> = { OUT_OF_STOCK: 0, LOW_STOCK: 1, REORDER_NEEDED: 2, OK: 3 };
+        if (statusOrder[a.status] !== statusOrder[b.status]) {
+          return statusOrder[a.status] - statusOrder[b.status];
+        }
+        return parseFloat(b.deficit) - parseFloat(a.deficit);
+      });
 
     return {
-      products: allProducts,
-      summary: { totalProducts: allProducts.length, threshold: minThreshold },
+      products: lowStockProducts,
+      summary: { 
+        totalProducts: lowStockProducts.length,
+        outOfStock: lowStockProducts.filter(p => p.status === "OUT_OF_STOCK").length,
+        lowStock: lowStockProducts.filter(p => p.status === "LOW_STOCK").length,
+      },
     };
   }
 

@@ -501,6 +501,8 @@ export class PurchasesService {
         id: purchasesDetail.id,
         productId: purchasesDetail.productId,
         productName: products.name,
+        productCode: products.code,
+        minStock: products.minStock,
         quantity: purchasesDetail.quantity,
         unitCost: purchasesDetail.unitCost,
         originalCurrencyId: purchasesDetail.originalCurrencyId,
@@ -534,6 +536,8 @@ export class PurchasesService {
         id: purchasesDetail.id,
         productId: purchasesDetail.productId,
         productName: products.name,
+        productCode: products.code,
+        minStock: products.minStock,
         quantity: purchasesDetail.quantity,
         unitCost: purchasesDetail.unitCost,
         originalCurrencyId: purchasesDetail.originalCurrencyId,
@@ -832,6 +836,8 @@ export class PurchasesService {
         currencyCode: currencies.code,
         costPrice: products.costPrice,
         salePrice: products.salePrice,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
       })
       .from(products)
       .leftJoin(categories, eq(products.categoryId, categories.id))

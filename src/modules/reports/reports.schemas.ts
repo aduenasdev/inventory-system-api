@@ -22,7 +22,6 @@ export const getValorizedStockSchema = z.object({
 export const getLowStockSchema = z.object({
   query: z.object({
     warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
-    minThreshold: z.string().transform(Number).optional(), // Cantidad mínima (default: 10)
   }),
 });
 

@@ -745,6 +745,8 @@ export class SalesService {
         id: salesDetail.id,
         productId: salesDetail.productId,
         productName: products.name,
+        productCode: products.code,
+        minStock: products.minStock,
         quantity: salesDetail.quantity,
         unitPrice: salesDetail.unitPrice,
         originalCurrencyId: salesDetail.originalCurrencyId,
@@ -776,6 +778,8 @@ export class SalesService {
         id: salesDetail.id,
         productId: salesDetail.productId,
         productName: products.name,
+        productCode: products.code,
+        minStock: products.minStock,
         quantity: salesDetail.quantity,
         unitPrice: salesDetail.unitPrice,
         originalCurrencyId: salesDetail.originalCurrencyId,
@@ -1409,6 +1413,8 @@ export class SalesService {
         unitType: units.type,
         categoryId: products.categoryId,
         categoryName: categories.name,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
       })
       .from(products)
       .innerJoin(currencies, eq(products.currencyId, currencies.id))

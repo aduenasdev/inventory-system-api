@@ -242,6 +242,8 @@ export class AdjustmentsService {
         unitId: products.unitId,
         unitName: units.name,
         unitShortName: units.shortName,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
       })
       .from(products)
       .leftJoin(categories, eq(products.categoryId, categories.id))

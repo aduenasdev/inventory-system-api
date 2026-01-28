@@ -205,6 +205,8 @@ async function main() {
       currency_id INT NOT NULL,
       unit_id INT NOT NULL,
       category_id INT NOT NULL DEFAULT 0,
+      min_stock DECIMAL(18, 2) DEFAULT 0,
+      reorder_point DECIMAL(18, 2),
       created_by INT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

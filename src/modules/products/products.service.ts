@@ -58,6 +58,8 @@ export async function createProduct(data: {
   currencyId: number;
   unitId: number;
   categoryId?: number;
+  minStock?: number;
+  reorderPoint?: number;
   createdBy: number;
 }) {
   // Validar que currency existe
@@ -103,6 +105,8 @@ export async function createProduct(data: {
     code: productCode,
     categoryId: data.categoryId ?? 0,
     salePrice: data.salePrice !== undefined ? data.salePrice.toString() : undefined,
+    minStock: data.minStock !== undefined ? data.minStock.toString() : "0",
+    reorderPoint: data.reorderPoint !== undefined ? data.reorderPoint.toString() : undefined,
   });
   return { id: insert.insertId, ...data, code: productCode };
 }
@@ -259,6 +263,8 @@ export async function updateProduct(
     currencyId?: number;
     unitId?: number;
     categoryId?: number;
+    minStock?: number;
+    reorderPoint?: number;
   }
 ) {
   // Verificar que el producto existe
@@ -318,6 +324,8 @@ export async function updateProduct(
 
   if (data.description !== undefined) updateData.description = data.description;
   if (data.salePrice !== undefined) updateData.salePrice = data.salePrice.toString();
+  if (data.minStock !== undefined) updateData.minStock = data.minStock.toString();
+  if (data.reorderPoint !== undefined) updateData.reorderPoint = data.reorderPoint.toString();
 
   // Solo actualizar si hay cambios
   if (Object.keys(updateData).length === 0) {

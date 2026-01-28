@@ -95,6 +95,8 @@ export class InventoryService {
         categoryId: products.categoryId,
         categoryName: categories.name,
         currentQuantity: inventory.currentQuantity,
+        minStock: products.minStock,
+        reorderPoint: products.reorderPoint,
         updatedAt: inventory.updatedAt,
       })
       .from(inventory)

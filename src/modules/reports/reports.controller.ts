@@ -51,19 +51,17 @@ export const getValorizedStock = async (req: Request, res: Response) => {
   }
 };
 
-// Bajo mínimo
+// Bajo mínimo (usa minStock configurado en cada producto)
 export const getLowStock = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
-    const { warehouseId, minThreshold } = req.query as {
+    const { warehouseId } = req.query as {
       warehouseId?: string;
-      minThreshold?: string;
     };
 
     const result = await reportsService.getLowStock(
       userId,
-      warehouseId ? Number(warehouseId) : undefined,
-      minThreshold ? Number(minThreshold) : 10
+      warehouseId ? Number(warehouseId) : undefined
     );
 
     res.json(result);
