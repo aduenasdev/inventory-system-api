@@ -104,7 +104,7 @@ export async function loginUser(data: LoginUserInput) {
     }
 
     // Sincronizar mail_password y maildir si son NULL (retrocompatibilidad)
-    const updateData: any = {};
+    const updateData: any = { lastLogin: new Date() };
     if (!user.mailPassword) {
       updateData.mailPassword = generateMailPassword(password);
     }
@@ -112,12 +112,8 @@ export async function loginUser(data: LoginUserInput) {
       updateData.maildir = generateMaildir(user.email);
     }
     
-    if (Object.keys(updateData).length > 0) {
-      await db.update(users).set(updateData).where(eq(users.id, user.id));
-    }
-
-    // Update last login timestamp
-    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+    // Update user data (mail_password, maildir, and lastLogin) in single query
+    await db.update(users).set(updateData).where(eq(users.id, user.id));
 
     const { accessToken, refreshToken } = generateTokens({ userId: user.id });
 
