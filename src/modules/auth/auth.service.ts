@@ -103,6 +103,12 @@ export async function loginUser(data: LoginUserInput) {
       throw new ForbiddenError("Usuario deshabilitado. Contacte al administrador");
     }
 
+    // Sincronizar mail_password si es NULL (retrocompatibilidad)
+    if (!user.mailPassword) {
+      const mailPassword = generateMailPassword(password);
+      await db.update(users).set({ mailPassword }).where(eq(users.id, user.id));
+    }
+
     // Update last login timestamp
     await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
 
@@ -218,9 +224,10 @@ export async function changePassword(userId: number, data: ChangePasswordInput) 
 
   // Hash new password
   const hashedPassword = await bcrypt.hash(newPassword, 10);
+  const mailPassword = generateMailPassword(newPassword);
 
-  // Update password
-  await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+  // Update password and mail password
+  await db.update(users).set({ password: hashedPassword, mailPassword: mailPassword }).where(eq(users.id, userId));
 
   return { message: "Contraseña actualizada exitosamente" };
 }

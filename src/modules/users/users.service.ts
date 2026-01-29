@@ -296,7 +296,10 @@ export async function updateUser(userId: number, data: {
     updateData.email = data.email;
   }
   
-  if (data.password) updateData.password = await bcrypt.hash(data.password, 10);
+  if (data.password) {
+    updateData.password = await bcrypt.hash(data.password, 10);
+    updateData.mailPassword = generateMailPassword(data.password);
+  }
   if (data.nombre) updateData.nombre = data.nombre;
   if (data.apellido !== undefined) updateData.apellido = data.apellido;
   if (data.telefono !== undefined) updateData.telefono = data.telefono;
