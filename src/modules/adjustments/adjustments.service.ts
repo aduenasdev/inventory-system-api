@@ -529,6 +529,16 @@ export class AdjustmentsService {
       throw new ValidationError("Solo se pueden aprobar ajustes en estado PENDING");
     }
 
+    // Permisos: adjustments.accept (global) o adjustments.accept.own (si es el creador)
+    const userPermissions: string[] = (global as any).currentUserPermissions || [];
+    const isCreator = adjustment.createdBy === userId;
+    const hasAccept = userPermissions.includes("adjustments.accept");
+    const hasAcceptOwn = userPermissions.includes("adjustments.accept.own");
+
+    if (!hasAccept && !(hasAcceptOwn && isCreator)) {
+      throw new Error("No tienes permiso para aprobar este ajuste");
+    }
+
     const isEntry = adjustment.affectsPositively;
     const adjustmentDate = adjustment.date; // Usar fecha del ajuste para tasa de cambio
 

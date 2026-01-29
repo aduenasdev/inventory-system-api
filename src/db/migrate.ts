@@ -748,6 +748,7 @@ async function main() {
     { name: 'adjustments.read', description: 'Leer ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.create', description: 'Crear ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.accept', description: 'Aprobar ajustes de inventario', group_name: 'adjustments' },
+    { name: 'adjustments.accept.own', description: 'Aprobar tus propios ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.cancel', description: 'Cancelar ajustes de inventario propios', group_name: 'adjustments' },
 
     // ═══════════════════════════════════════════════════════════════
