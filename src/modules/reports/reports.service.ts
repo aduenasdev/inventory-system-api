@@ -1318,7 +1318,7 @@ export class ReportsService {
     }));
 
     // ========== 6. MOVIMIENTOS (si se solicitan) ==========
-    let movements: any[] | undefined;
+    let movements: any | undefined;
     if (options.includeMovements && options.startDate) {
       movements = await this.getMovementsForValuation(
         warehouseFilter,
@@ -1329,7 +1329,7 @@ export class ReportsService {
     }
 
     // ========== 7. KARDEX (si se solicita) ==========
-    let kardex: any[] | undefined;
+    let kardex: any | undefined;
     if (options.includeKardex && options.productId) {
       const kardexResult = await this.getKardex(
         userId,
@@ -1338,7 +1338,7 @@ export class ReportsService {
         options.startDate,
         options.endDate || today
       );
-      kardex = kardexResult.movements;
+      kardex = kardexResult;
     }
 
     // Construir resultado base
@@ -1404,7 +1404,7 @@ export class ReportsService {
   private groupInventoryByWarehouse(productList: any[]) {
     const map = new Map<number, { warehouseId: number; warehouseName: string; totalUnits: number; totalValue: number; productCount: number }>();
     
-    productList.forEach(p => {
+    productList.forEach((p: any) => {
       const existing = map.get(p.warehouseId);
       if (!existing) {
         map.set(p.warehouseId, {
@@ -1431,7 +1431,7 @@ export class ReportsService {
   private groupInventoryByCategory(productList: any[]) {
     const map = new Map<number | null, { categoryId: number | null; categoryName: string; totalUnits: number; totalValue: number; productCount: number }>();
     
-    productList.forEach(p => {
+    productList.forEach((p: any) => {
       const existing = map.get(p.categoryId);
       if (!existing) {
         map.set(p.categoryId, {
@@ -1462,11 +1462,11 @@ export class ReportsService {
     const map = new Map<string, { ageCategory: string; totalUnits: number; totalValue: number; lotCount: number }>();
     
     // Inicializar todas las categorías
-    categories.forEach(cat => {
+    categories.forEach((cat: string) => {
       map.set(cat, { ageCategory: cat, totalUnits: 0, totalValue: 0, lotCount: 0 });
     });
 
-    lots.forEach(lot => {
+    lots.forEach((lot: any) => {
       const existing = map.get(lot.ageCategory)!;
       existing.totalUnits += lot.currentQuantity;
       existing.totalValue += lot.totalCost;
@@ -1605,7 +1605,7 @@ export class ReportsService {
     // Por Establecimiento
     lines.push("=== POR Establecimiento ===");
     lines.push("Establecimiento,Cantidad Productos,Unidades,Valor (CUP)");
-    report.byWarehouse.forEach(w => {
+    report.byWarehouse.forEach((w: any) => {
       lines.push(`${w.warehouseName},${w.productCount},${w.totalUnits},${w.totalValue}`);
     });
     lines.push("");
@@ -1613,7 +1613,7 @@ export class ReportsService {
     // Por Categoría
     lines.push("=== POR CATEGORÍA ===");
     lines.push("Categoría,Cantidad Productos,Unidades,Valor (CUP)");
-    report.byCategory.forEach(c => {
+    report.byCategory.forEach((c: any) => {
       lines.push(`${c.categoryName},${c.productCount},${c.totalUnits},${c.totalValue}`);
     });
     lines.push("");
@@ -1621,7 +1621,7 @@ export class ReportsService {
     // Por Antigüedad
     lines.push("=== POR ANTIGÜEDAD ===");
     lines.push("Rango,Lotes,Unidades,Valor (CUP)");
-    report.byAge.forEach(a => {
+    report.byAge.forEach((a: any) => {
       lines.push(`${a.ageCategory},${a.lotCount},${a.totalUnits},${a.totalValue}`);
     });
     lines.push("");
@@ -1629,7 +1629,7 @@ export class ReportsService {
     // Detalle de productos
     lines.push("=== DETALLE DE PRODUCTOS ===");
     lines.push("Código,Producto,Categoría,Establecimiento,Unidad,Cantidad,Costo Promedio,Costo Total,Stock Mínimo,Estado,Lotes,Días Máx");
-    report.items.forEach(item => {
+    report.items.forEach((item: any) => {
       lines.push(`${item.productCode},${item.productName},${item.categoryName},${item.warehouseName},${item.unitShortName},${item.quantity},${item.avgUnitCost},${item.totalCost},${item.minStock},${item.status},${item.lotCount},${item.maxDaysInInventory}`);
     });
 
