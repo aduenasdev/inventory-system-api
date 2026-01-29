@@ -107,7 +107,7 @@ router.get(
 router.get(
   "/reports/cancelled",
   authMiddleware,
-  hasPermission("purchases.read"),
+  hasPermission("reports.purchases.read"),
   validate(getCancelledPurchasesReportSchema),
   getCancelledPurchasesReport
 );

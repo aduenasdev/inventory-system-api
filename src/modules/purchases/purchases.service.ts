@@ -1033,6 +1033,7 @@ export class PurchasesService {
         bySupplier: [],
         byMonth: [],
         topProducts: [],
+        message: "El usuario no tiene establecimientos asignados. Solicite acceso a un establecimiento para ver reportes de compras."
       };
     }
 

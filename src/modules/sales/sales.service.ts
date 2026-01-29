@@ -1226,6 +1226,7 @@ export class SalesService {
         targetCurrency: null,
         sales: [],
         summary: { totalSales: 0, totalRevenue: "0.00", paidSales: 0, unpaidSales: 0 },
+        message: "El usuario no tiene establecimientos asignados. Solicite acceso a un establecimiento para ver reportes de ventas."
       };
     }
 
@@ -1626,7 +1627,8 @@ export class SalesService {
     }
   ) {
     const page = Math.max(1, filters.page || 1);
-    const limit = Math.min(Math.max(1, filters.limit || 20), 100);
+    // Si no se envía limit, no limitar resultados (traer todos)
+    const limit = filters.limit === undefined ? undefined : Math.min(Math.max(1, filters.limit), 100);
     
     // Obtener establecimientos del usuario
     const userWarehousesData = await db
@@ -1771,44 +1773,79 @@ export class SalesService {
       .select({ count: sql<number>`COUNT(*)` })
       .from(sales)
       .where(whereCondition);
-    
-    const totalRecords = Number(countResult?.count || 0);
-    const totalPages = Math.ceil(totalRecords / limit);
 
-    // Obtener ventas paginadas
-    const salesData = await db
-      .select({
-        id: sales.id,
-        invoiceNumber: sales.invoiceNumber,
-        customerName: sales.customerName,
-        customerPhone: sales.customerPhone,
-        date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
-        warehouseId: sales.warehouseId,
-        warehouseName: warehouses.name,
-        currencyId: sales.currencyId,
-        currencyCode: currencies.code,
-        currencySymbol: currencies.symbol,
-        paymentTypeId: sales.paymentTypeId,
-        paymentTypeName: paymentTypes.type,
-        status: sales.status,
-        subtotal: sales.subtotal,
-        total: sales.total,
-        isPaid: sales.isPaid,
-        createdBy: sales.createdBy,
-        createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
-        createdAt: sales.createdAt,
-        acceptedAt: sales.acceptedAt,
-        cancelledAt: sales.cancelledAt,
-      })
-      .from(sales)
-      .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
-      .innerJoin(currencies, eq(sales.currencyId, currencies.id))
-      .innerJoin(createdByUser, eq(sales.createdBy, createdByUser.id))
-      .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
-      .where(whereCondition)
-      .orderBy(desc(sales.date), desc(sales.id))
-      .limit(limit)
-      .offset((page - 1) * limit);
+    const totalRecords = Number(countResult?.count || 0);
+    const totalPages = limit ? Math.ceil(totalRecords / limit) : 1;
+
+    // Obtener ventas (paginadas solo si hay limit)
+    let salesData;
+    if (limit !== undefined) {
+      salesData = await db
+        .select({
+          id: sales.id,
+          invoiceNumber: sales.invoiceNumber,
+          customerName: sales.customerName,
+          customerPhone: sales.customerPhone,
+          date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
+          warehouseId: sales.warehouseId,
+          warehouseName: warehouses.name,
+          currencyId: sales.currencyId,
+          currencyCode: currencies.code,
+          currencySymbol: currencies.symbol,
+          paymentTypeId: sales.paymentTypeId,
+          paymentTypeName: paymentTypes.type,
+          status: sales.status,
+          subtotal: sales.subtotal,
+          total: sales.total,
+          isPaid: sales.isPaid,
+          createdBy: sales.createdBy,
+          createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+          createdAt: sales.createdAt,
+          acceptedAt: sales.acceptedAt,
+          cancelledAt: sales.cancelledAt,
+        })
+        .from(sales)
+        .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+        .innerJoin(currencies, eq(sales.currencyId, currencies.id))
+        .innerJoin(createdByUser, eq(sales.createdBy, createdByUser.id))
+        .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
+        .where(whereCondition)
+        .orderBy(desc(sales.date), desc(sales.id))
+        .limit(limit)
+        .offset((page - 1) * limit);
+    } else {
+      salesData = await db
+        .select({
+          id: sales.id,
+          invoiceNumber: sales.invoiceNumber,
+          customerName: sales.customerName,
+          customerPhone: sales.customerPhone,
+          date: sql<string>`DATE_FORMAT(${sales.date}, '%Y-%m-%d')`.as('date'),
+          warehouseId: sales.warehouseId,
+          warehouseName: warehouses.name,
+          currencyId: sales.currencyId,
+          currencyCode: currencies.code,
+          currencySymbol: currencies.symbol,
+          paymentTypeId: sales.paymentTypeId,
+          paymentTypeName: paymentTypes.type,
+          status: sales.status,
+          subtotal: sales.subtotal,
+          total: sales.total,
+          isPaid: sales.isPaid,
+          createdBy: sales.createdBy,
+          createdByName: sql<string>`CONCAT(${createdByUser.nombre}, ' ', COALESCE(${createdByUser.apellido}, ''))`.as('created_by_name'),
+          createdAt: sales.createdAt,
+          acceptedAt: sales.acceptedAt,
+          cancelledAt: sales.cancelledAt,
+        })
+        .from(sales)
+        .innerJoin(warehouses, eq(sales.warehouseId, warehouses.id))
+        .innerJoin(currencies, eq(sales.currencyId, currencies.id))
+        .innerJoin(createdByUser, eq(sales.createdBy, createdByUser.id))
+        .leftJoin(paymentTypes, eq(sales.paymentTypeId, paymentTypes.id))
+        .where(whereCondition)
+        .orderBy(desc(sales.date), desc(sales.id));
+    }
 
     // Calcular totales del reporte (convertidos a CUP)
     const reportTotals = await this.calculateReportTotals(whereCondition, filters.startDate);
@@ -1823,11 +1860,11 @@ export class SalesService {
       // Paginación
       pagination: {
         page,
-        limit,
+        limit: limit ?? null,
         totalRecords,
         totalPages,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
+        hasNextPage: limit ? page < totalPages : false,
+        hasPrevPage: limit ? page > 1 : false,
       },
       
       // Resumen del reporte (en CUP para comparabilidad)
