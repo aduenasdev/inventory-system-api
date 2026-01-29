@@ -10,6 +10,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { users } from "../../db/schema/users";
 import bcrypt from "bcrypt";
 import { ConflictError, ValidationError, ForbiddenError, NotFoundError } from "../../utils/errors";
+import { generateMailPassword, generateMaildir } from "../../utils/mailCrypt";
 
 export async function assignRoleToUser(
   userId: number,
@@ -132,12 +133,17 @@ export async function createUser(data: {
   }
   
   const hashed = await bcrypt.hash(data.password, 10);
+  const mailPassword = generateMailPassword(data.password);
+  const maildir = generateMaildir(data.email);
+  
   const [insert] = await db.insert(users).values({ 
     email: data.email, 
     password: hashed,
     nombre: data.nombre,
     apellido: data.apellido,
-    telefono: data.telefono
+    telefono: data.telefono,
+    mailPassword: mailPassword,
+    maildir: maildir
   });
   
   // Assign roles to the user

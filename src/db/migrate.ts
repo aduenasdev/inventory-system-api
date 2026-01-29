@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import bcrypt from "bcrypt";
 import { sql } from "drizzle-orm";
 import dotenv from "dotenv";
+import { generateMailPassword, generateMaildir } from "../utils/mailCrypt";
 
 dotenv.config();
 
@@ -615,8 +616,10 @@ async function main() {
 
   // Crear usuario administrador
   const hashedPassword = await bcrypt.hash("Admin123", 10);
+  const mailPassword = generateMailPassword("Admin123");
+  const maildir = generateMaildir("admin@sasinversus.com");
   const [adminUserResult] = (await db.execute(
-    sql`INSERT INTO users (email, password, nombre) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin"})`
+    sql`INSERT INTO users (email, password, nombre, mail_password, maildir) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin"}, ${mailPassword}, ${maildir})`
   )) as any[];
   const adminUserId = adminUserResult.insertId;
   console.log("Usuario 'admin@sasinversus.com' creado.");

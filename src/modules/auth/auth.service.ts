@@ -11,6 +11,7 @@ import jwt from "jsonwebtoken";
 import { generateTokens } from "../../utils/jwt";
 import { ConflictError, UnauthorizedError, ForbiddenError, NotFoundError } from "../../utils/errors";
 import { RegisterUserInput, LoginUserInput, ChangePasswordInput } from "./auth.schemas";
+import { generateMailPassword, generateMaildir } from "../../utils/mailCrypt";
 
 export async function registerUser(data: RegisterUserInput) {
   const { email, password } = data.body;
@@ -22,11 +23,15 @@ export async function registerUser(data: RegisterUserInput) {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
+  const mailPassword = generateMailPassword(password);
+  const maildir = generateMaildir(email);
 
   const [newUser] = await db.insert(users).values({
     email,
     password: hashedPassword,
     nombre: email.split('@')[0], // Nombre temporal desde email
+    mailPassword: mailPassword,
+    maildir: maildir
   });
 
   // Assign default 'user' role via pivot
