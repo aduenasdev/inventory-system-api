@@ -2098,12 +2098,8 @@ export class SalesService {
       .where(eq(paymentTypes.isActive, true))
       .orderBy(paymentTypes.type);
 
-    // Estados posibles
-    const statusOptions = [
-      { id: "PENDING", name: "Pendiente" },
-      { id: "APPROVED", name: "Aprobada" },
-      { id: "CANCELLED", name: "Cancelada" },
-    ];
+    // Estados posibles (solo strings para el frontend)
+    const statusOptions = ["PENDING", "APPROVED", "CANCELLED"];
 
     // Estados de pago (solo si tiene permiso sales.paid)
     const isPaidOptions = hasPaidPermission ? [
