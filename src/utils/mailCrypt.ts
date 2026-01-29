@@ -5,6 +5,24 @@ const IS_WINDOWS = process.platform === "win32";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 /**
+ * Verifica si mkpasswd está disponible en el sistema
+ */
+function isMkpasswdAvailable(): boolean {
+  try {
+    execSync("which mkpasswd", { 
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 1000
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const HAS_MKPASSWD = !IS_WINDOWS && isMkpasswdAvailable();
+
+/**
  * Genera un hash SHA512-CRYPT compatible con Dovecot
  * 
  * EN LINUX/UBUNTU: Usa mkpasswd (método correcto para Dovecot)
@@ -18,9 +36,9 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 export function generateMailPassword(password: string): string {
   try {
     // ═══════════════════════════════════════════════════════════════
-    // 🐧 LINUX/UBUNTU: Usar mkpasswd (método CORRECTO para Dovecot)
+    // 🐧 LINUX/UBUNTU: Usar mkpasswd si está disponible
     // ═══════════════════════════════════════════════════════════════
-    if (!IS_WINDOWS) {
+    if (HAS_MKPASSWD) {
       try {
         // ✅ Escapar caracteres especiales para bash
         const escapedPassword = password
@@ -48,26 +66,26 @@ export function generateMailPassword(password: string): string {
         console.log(`[mailCrypt] ✅ Hash SHA512-CRYPT (mkpasswd): ${hash.substring(0, 30)}... (${hash.length} chars)`);
         return hash;
       } catch (mkpasswdError: any) {
-        // Si mkpasswd falla en Linux, caer a método alternativo
-        console.warn(`[mailCrypt] ⚠️ mkpasswd no disponible, usando fallback crypto:`, mkpasswdError.message);
+        // Si mkpasswd falla, caer a método alternativo
+        console.warn(`[mailCrypt] ⚠️ mkpasswd falló, usando fallback crypto:`, mkpasswdError.message);
         return generateMailPasswordFallback(password);
       }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🪟 WINDOWS: Usar crypto nativo (fallback para development)
+    // 🪟 WINDOWS o mkpasswd no disponible: Usar crypto nativo
     // ═══════════════════════════════════════════════════════════════
-    if (IS_WINDOWS && !IS_PRODUCTION) {
-      console.warn(`[mailCrypt] ⚠️ Windows detectado - usando fallback crypto (solo para development)`);
+    if (!IS_PRODUCTION) {
+      console.warn(`[mailCrypt] ⚠️ mkpasswd no disponible - usando fallback crypto (solo para development)`);
       return generateMailPasswordFallback(password);
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ❌ PRODUCTION EN WINDOWS: ERROR
+    // ❌ PRODUCTION SIN mkpasswd: ERROR
     // ═══════════════════════════════════════════════════════════════
     throw new Error(
-      "No se puede generar mail_password en Windows (producción). " +
-      "Deploy en Linux/Ubuntu con mkpasswd disponible."
+      "No se puede generar mail_password en producción sin mkpasswd. " +
+      "Instala con: sudo apt install whois"
     );
 
   } catch (error: any) {
@@ -88,7 +106,7 @@ function generateMailPasswordFallback(password: string): string {
     // Generar salt aleatorio (16 caracteres base64 válidos para crypt)
     const saltChars = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     let salt = "";
-    const randomBytes = crypto.randomBytes(12);
+    const randomBytes = crypto.randomBytes(16); // Generar 16 bytes (antes eran 12)
     
     for (let i = 0; i < 16; i++) {
       salt += saltChars[randomBytes[i] % saltChars.length];
@@ -133,9 +151,9 @@ export function verifyMailPassword(password: string, hashedPassword: string): bo
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🐧 LINUX/UBUNTU: Usar mkpasswd (método CORRECTO)
+    // 🐧 LINUX/UBUNTU: Usar mkpasswd si está disponible
     // ═══════════════════════════════════════════════════════════════
-    if (!IS_WINDOWS) {
+    if (HAS_MKPASSWD) {
       try {
         const escapedPassword = password
           .replace(/\\/g, "\\\\")
@@ -158,13 +176,13 @@ export function verifyMailPassword(password: string, hashedPassword: string): bo
 
         return newHash === hashedPassword;
       } catch (mkpasswdError: any) {
-        console.warn(`[mailCrypt] ⚠️ mkpasswd no disponible, usando fallback`);
+        console.warn(`[mailCrypt] ⚠️ mkpasswd falló, usando fallback`);
         return verifyMailPasswordFallback(password, hashedPassword);
       }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🪟 WINDOWS: Usar fallback
+    // 🪟 WINDOWS o mkpasswd no disponible: Usar fallback
     // ═══════════════════════════════════════════════════════════════
     return verifyMailPasswordFallback(password, hashedPassword);
 
