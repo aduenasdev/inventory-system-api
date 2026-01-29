@@ -624,6 +624,10 @@ async function main() {
 
   // Poblar permisos
   const fixedPermissions = [
+    // ═══════════════════════════════════════════════════════════════
+    // 1. CONFIGURACIÓN DEL SISTEMA
+    // ═══════════════════════════════════════════════════════════════
+
     // CRUD usuarios
     { name: 'users.read', description: 'Leer usuarios', group_name: 'users' },
     { name: 'users.create', description: 'Crear usuarios', group_name: 'users' },
@@ -632,17 +636,17 @@ async function main() {
     { name: 'users.roles.associate', description: 'Asociar roles a usuarios', group_name: 'users' },
     { name: 'users.warehouses.associate', description: 'Asociar usuarios a establecimientos', group_name: 'users' },
 
-    // CRUD establecimientos
-    { name: 'warehouses.read', description: 'Leer establecimientos', group_name: 'warehouses' },
-    { name: 'warehouses.create', description: 'Crear establecimientos', group_name: 'warehouses' },
-    { name: 'warehouses.update', description: 'Actualizar establecimientos', group_name: 'warehouses' },
-    { name: 'warehouses.delete', description: 'Eliminar establecimientos', group_name: 'warehouses' },
-
     // CRUD roles
     { name: 'roles.read', description: 'Leer roles', group_name: 'roles' },
     { name: 'roles.create', description: 'Crear roles', group_name: 'roles' },
     { name: 'roles.update', description: 'Actualizar roles', group_name: 'roles' },
     { name: 'roles.delete', description: 'Eliminar roles', group_name: 'roles' },
+
+    // CRUD establecimientos
+    { name: 'warehouses.read', description: 'Leer establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.create', description: 'Crear establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.update', description: 'Actualizar establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.delete', description: 'Eliminar establecimientos', group_name: 'warehouses' },
 
     // CRUD unidades de medida
     { name: 'units.read', description: 'Leer unidades de medida', group_name: 'units' },
@@ -681,13 +685,26 @@ async function main() {
     { name: 'payment_types.update', description: 'Actualizar tipos de pago', group_name: 'payment_types' },
     { name: 'payment_types.delete', description: 'Eliminar tipos de pago', group_name: 'payment_types' },
 
-    // Inventario
-    { name: 'inventory.read', description: 'Consultar inventario', group_name: 'inventory' },
-    { name: 'inventory.adjustments.create', description: 'Crear ajustes de inventario', group_name: 'inventory' },
-    { name: 'inventory.adjustments.approve', description: 'Aprobar ajustes de inventario', group_name: 'inventory' },
-    { name: 'inventory.lots.read', description: 'Consultar lotes de inventario', group_name: 'inventory' },
+    // ═══════════════════════════════════════════════════════════════
+    // 2. OPERACIONES CONTABLES (Gastos)
+    // ═══════════════════════════════════════════════════════════════
 
-    // Compras
+    // CRUD tipos de gastos
+    { name: 'expense_types.read', description: 'Leer tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.create', description: 'Crear tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.update', description: 'Actualizar tipos de gastos', group_name: 'expense_types' },
+    { name: 'expense_types.delete', description: 'Eliminar tipos de gastos', group_name: 'expense_types' },
+
+    // Gastos
+    { name: 'expenses.read', description: 'Leer gastos', group_name: 'expenses' },
+    { name: 'expenses.create', description: 'Crear gastos', group_name: 'expenses' },
+    { name: 'expenses.accept', description: 'Aprobar gastos', group_name: 'expenses' },
+    { name: 'expenses.cancel', description: 'Cancelar gastos propios', group_name: 'expenses' },
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. COMPRAS
+    // ═══════════════════════════════════════════════════════════════
+
     { name: 'purchases.read', description: 'Leer facturas de compra', group_name: 'purchases' },
     { name: 'purchases.create', description: 'Crear facturas de compra', group_name: 'purchases' },
     { name: 'purchases.accept', description: 'Aceptar facturas de compra', group_name: 'purchases' },
@@ -695,7 +712,10 @@ async function main() {
     { name: 'purchases.price', description: 'Asignar precios a compras y desbloquear lotes', group_name: 'purchases' },
     { name: 'purchases.backdate', description: 'Consultar tasas de cambio de fechas anteriores para compras retroactivas', group_name: 'purchases' },
 
-    // Ventas
+    // ═══════════════════════════════════════════════════════════════
+    // 4. VENTAS
+    // ═══════════════════════════════════════════════════════════════
+
     { name: 'sales.read', description: 'Leer facturas de venta', group_name: 'sales' },
     { name: 'sales.create', description: 'Crear facturas de venta', group_name: 'sales' },
     { name: 'sales.accept', description: 'Aceptar facturas de venta', group_name: 'sales' },
@@ -703,7 +723,10 @@ async function main() {
     { name: 'sales.paid', description: 'Marcar facturas de venta como pagadas/cobradas', group_name: 'sales' },
     { name: 'sales.backdate', description: 'Crear facturas de venta con fecha retroactiva', group_name: 'sales' },
 
-    // Traslados
+    // ═══════════════════════════════════════════════════════════════
+    // 5. TRASLADOS
+    // ═══════════════════════════════════════════════════════════════
+
     { name: 'transfers.read', description: 'Leer traslados', group_name: 'transfers' },
     { name: 'transfers.create', description: 'Crear traslados', group_name: 'transfers' },
     { name: 'transfers.accept', description: 'Aceptar traslados', group_name: 'transfers' },
@@ -711,12 +734,9 @@ async function main() {
     { name: 'transfers.cancel', description: 'Anular traslados aprobados', group_name: 'transfers' },
     { name: 'transfers.backdate', description: 'Crear traslados con fecha retroactiva', group_name: 'transfers' },
 
-    // Reportes
-    { name: 'reports.stock.read', description: 'Ver stock actual de establecimientos', group_name: 'reports' },
-    { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
-    { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
-    { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
-    { name: 'reports.profit.read', description: 'Ver reporte de utilidad/ganancia', group_name: 'reports' },
+    // ═══════════════════════════════════════════════════════════════
+    // 6. AJUSTES DE INVENTARIO
+    // ═══════════════════════════════════════════════════════════════
 
     // CRUD tipos de ajuste
     { name: 'adjustment_types.read', description: 'Leer tipos de ajuste', group_name: 'adjustment_types' },
@@ -730,17 +750,24 @@ async function main() {
     { name: 'adjustments.accept', description: 'Aprobar ajustes de inventario', group_name: 'adjustments' },
     { name: 'adjustments.cancel', description: 'Cancelar ajustes de inventario propios', group_name: 'adjustments' },
 
-    // CRUD tipos de gastos
-    { name: 'expense_types.read', description: 'Leer tipos de gastos', group_name: 'expense_types' },
-    { name: 'expense_types.create', description: 'Crear tipos de gastos', group_name: 'expense_types' },
-    { name: 'expense_types.update', description: 'Actualizar tipos de gastos', group_name: 'expense_types' },
-    { name: 'expense_types.delete', description: 'Eliminar tipos de gastos', group_name: 'expense_types' },
+    // ═══════════════════════════════════════════════════════════════
+    // 7. INVENTARIO
+    // ═══════════════════════════════════════════════════════════════
 
-    // Gastos
-    { name: 'expenses.read', description: 'Leer gastos', group_name: 'expenses' },
-    { name: 'expenses.create', description: 'Crear gastos', group_name: 'expenses' },
-    { name: 'expenses.accept', description: 'Aprobar gastos', group_name: 'expenses' },
-    { name: 'expenses.cancel', description: 'Cancelar gastos propios', group_name: 'expenses' },
+    { name: 'inventory.read', description: 'Consultar inventario', group_name: 'inventory' },
+    { name: 'inventory.adjustments.create', description: 'Crear ajustes de inventario', group_name: 'inventory' },
+    { name: 'inventory.adjustments.approve', description: 'Aprobar ajustes de inventario', group_name: 'inventory' },
+    { name: 'inventory.lots.read', description: 'Consultar lotes de inventario', group_name: 'inventory' },
+
+    // ═══════════════════════════════════════════════════════════════
+    // 8. REPORTES
+    // ═══════════════════════════════════════════════════════════════
+
+    { name: 'reports.stock.read', description: 'Ver stock actual de establecimientos', group_name: 'reports' },
+    { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
+    { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
+    { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
+    { name: 'reports.profit.read', description: 'Ver reporte de utilidad/ganancia', group_name: 'reports' },
   ];
 
   for (const p of fixedPermissions) {
