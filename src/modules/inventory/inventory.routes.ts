@@ -42,7 +42,7 @@ router.get(
 
 // ========== RUTAS DE LOTES (primero para evitar conflictos con :warehouseId) ==========
 
-// GET /inventory/lots/warehouse/:warehouseId - Listar lotes de un almacén
+// GET /inventory/lots/warehouse/:warehouseId - Listar lotes de un establecimiento
 router.get(
   "/lots/warehouse/:warehouseId",
   authMiddleware,
@@ -116,7 +116,7 @@ router.post(
   createAdjustment
 );
 
-// GET /inventory/:warehouseId/:productId - Stock de un producto en un almacén
+// GET /inventory/:warehouseId/:productId - Stock de un producto en un establecimiento
 router.get(
   "/:warehouseId/:productId",
   authMiddleware,

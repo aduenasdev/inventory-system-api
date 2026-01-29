@@ -87,7 +87,7 @@ export class AdjustmentsService {
     return `AJ-${year}-${nextNumber.toString().padStart(5, "0")}`;
   }
 
-  // Validar que el usuario pertenece al almacén
+  // Validar que el usuario pertenece al establecimiento
   private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
     const [userWarehouse] = await db
       .select()
@@ -100,7 +100,7 @@ export class AdjustmentsService {
       );
 
     if (!userWarehouse) {
-      throw new ForbiddenError("No tienes permiso para realizar ajustes en este almacén");
+      throw new ForbiddenError("No tienes permiso para realizar ajustes en este establecimiento");
     }
   }
 
@@ -137,7 +137,7 @@ export class AdjustmentsService {
     return parseFloat(rate.rate);
   }
 
-  // Obtener almacenes del usuario
+  // Obtener establecimientos del usuario
   async getUserWarehouses(userId: number) {
     return await db
       .select({
@@ -164,7 +164,7 @@ export class AdjustmentsService {
       .orderBy(adjustmentTypes.name);
   }
 
-  // Obtener productos con stock en un almacén (para salidas)
+  // Obtener productos con stock en un establecimiento (para salidas)
   async getProductsWithStock(warehouseId: number, search?: string) {
     const conditions: any[] = [
       eq(inventoryLots.warehouseId, warehouseId),
@@ -280,7 +280,7 @@ export class AdjustmentsService {
     }>;
     userId: number;
   }) {
-    // Validar que el usuario pertenece al almacén
+    // Validar que el usuario pertenece al establecimiento
     await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
 
     // Validar que hay detalles
@@ -298,14 +298,14 @@ export class AdjustmentsService {
       throw new NotFoundError("Tipo de ajuste no encontrado");
     }
 
-    // Validar almacén
+    // Validar establecimiento
     const [warehouse] = await db
       .select()
       .from(warehouses)
       .where(eq(warehouses.id, data.warehouseId));
 
     if (!warehouse) {
-      throw new NotFoundError("Almacén no encontrado");
+      throw new NotFoundError("Establecimiento no encontrado");
     }
 
     // Fecha del ajuste
@@ -404,7 +404,7 @@ export class AdjustmentsService {
     warehouseId?: number,
     status?: string
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
     if (userWarehouseIds.length === 0) {

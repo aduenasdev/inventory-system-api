@@ -101,7 +101,7 @@ async function main() {
   `);
 
   // ═══════════════════════════════════════════════════════════════
-  // TABLAS DE CONFIGURACIÓN (almacenes, unidades, monedas, etc.)
+  // TABLAS DE CONFIGURACIÓN (establecimientos, unidades, monedas, etc.)
   // ═══════════════════════════════════════════════════════════════
 
   await db.execute(sql`
@@ -630,13 +630,13 @@ async function main() {
     { name: 'users.update', description: 'Actualizar usuarios', group_name: 'users' },
     { name: 'users.delete', description: 'Eliminar usuarios', group_name: 'users' },
     { name: 'users.roles.associate', description: 'Asociar roles a usuarios', group_name: 'users' },
-    { name: 'users.warehouses.associate', description: 'Asociar usuarios a almacenes', group_name: 'users' },
+    { name: 'users.warehouses.associate', description: 'Asociar usuarios a establecimientos', group_name: 'users' },
 
-    // CRUD almacenes
-    { name: 'warehouses.read', description: 'Leer almacenes', group_name: 'warehouses' },
-    { name: 'warehouses.create', description: 'Crear almacenes', group_name: 'warehouses' },
-    { name: 'warehouses.update', description: 'Actualizar almacenes', group_name: 'warehouses' },
-    { name: 'warehouses.delete', description: 'Eliminar almacenes', group_name: 'warehouses' },
+    // CRUD establecimientos
+    { name: 'warehouses.read', description: 'Leer establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.create', description: 'Crear establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.update', description: 'Actualizar establecimientos', group_name: 'warehouses' },
+    { name: 'warehouses.delete', description: 'Eliminar establecimientos', group_name: 'warehouses' },
 
     // CRUD roles
     { name: 'roles.read', description: 'Leer roles', group_name: 'roles' },
@@ -712,7 +712,7 @@ async function main() {
     { name: 'transfers.backdate', description: 'Crear traslados con fecha retroactiva', group_name: 'transfers' },
 
     // Reportes
-    { name: 'reports.stock.read', description: 'Ver stock actual de almacenes', group_name: 'reports' },
+    { name: 'reports.stock.read', description: 'Ver stock actual de establecimientos', group_name: 'reports' },
     { name: 'reports.stock.valorized', description: 'Ver stock valorizado (con costos)', group_name: 'reports' },
     { name: 'reports.movements.read', description: 'Ver movimientos de inventario', group_name: 'reports' },
     { name: 'reports.sales.read', description: 'Ver reportes de ventas', group_name: 'reports' },
@@ -820,7 +820,7 @@ async function main() {
 
   // Seed de tipos de gastos comunes
   const commonExpenseTypes = [
-    { name: 'Alquiler', description: 'Pago de alquiler de local o almacén' },
+    { name: 'Alquiler', description: 'Pago de alquiler de local o establecimiento' },
     { name: 'Servicios públicos', description: 'Electricidad, agua, gas, internet, teléfono' },
     { name: 'Salarios', description: 'Pago de salarios y nóminas' },
     { name: 'Transporte', description: 'Gastos de transporte y combustible' },

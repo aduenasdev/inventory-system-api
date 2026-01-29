@@ -3,7 +3,7 @@ import { z } from "zod";
 // ========== STOCK ACTUAL ==========
 export const getStockReportSchema = z.object({
   query: z.object({
-    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(), // Filtro por establecimiento
     productId: z.string().transform(Number).optional(), // Filtro por producto específico
     categoryId: z.string().transform(Number).optional(), // Filtro por categoría
   }),
@@ -12,7 +12,7 @@ export const getStockReportSchema = z.object({
 // ========== STOCK VALORIZADO ==========
 export const getValorizedStockSchema = z.object({
   query: z.object({
-    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(), // Filtro por establecimiento
     productId: z.string().transform(Number).optional(), // Filtro por producto específico
     categoryId: z.string().transform(Number).optional(), // Filtro por categoría
   }),
@@ -21,14 +21,14 @@ export const getValorizedStockSchema = z.object({
 // ========== BAJO MÍNIMO ==========
 export const getLowStockSchema = z.object({
   query: z.object({
-    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(), // Filtro por establecimiento
   }),
 });
 
 // ========== MOVIMIENTOS ==========
 export const getMovementsReportSchema = z.object({
   query: z.object({
-    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(), // Filtro por establecimiento
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)"),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
     type: z.enum(["INVOICE_ENTRY", "SALE_EXIT", "TRANSFER_ENTRY", "TRANSFER_EXIT", "ADJUSTMENT_ENTRY", "ADJUSTMENT_EXIT"]).optional(), // Tipo de movimiento
@@ -40,7 +40,7 @@ export const getMovementsReportSchema = z.object({
 export const getKardexSchema = z.object({
   query: z.object({
     productId: z.string().transform(Number), // Obligatorio
-    warehouseId: z.string().transform(Number).optional(), // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(), // Filtro por establecimiento
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(),
   }),
@@ -68,7 +68,7 @@ export const exportProfitReportSchema = z.object({
 // ========== INVENTORY VALUATION REPORT (INFORME DE INVENTARIO) ==========
 export const getInventoryValuationSchema = z.object({
   query: z.object({
-    warehouseId: z.string().transform(Number).optional(),    // Filtro por almacén
+    warehouseId: z.string().transform(Number).optional(),    // Filtro por establecimiento
     categoryId: z.string().transform(Number).optional(),     // Filtro por categoría
     productId: z.string().transform(Number).optional(),      // Filtro por producto específico
     cutoffDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)").optional(), // Corte a fecha

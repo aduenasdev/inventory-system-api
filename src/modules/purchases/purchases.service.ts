@@ -48,7 +48,7 @@ export class PurchasesService {
     return `FC-${year}-${nextNumber.toString().padStart(5, "0")}`;
   }
 
-  // Validar que el almacén existe
+  // Validar que el establecimiento existe
   private async validateWarehouseExists(warehouseId: number): Promise<void> {
     const [warehouse] = await db
       .select({ id: warehouses.id })
@@ -56,7 +56,7 @@ export class PurchasesService {
       .where(eq(warehouses.id, warehouseId));
     
     if (!warehouse) {
-      throw new NotFoundError(`Almacén con ID ${warehouseId} no encontrado`);
+      throw new NotFoundError(`Establecimiento con ID ${warehouseId} no encontrado`);
     }
   }
 
@@ -72,7 +72,7 @@ export class PurchasesService {
     }
   }
 
-  // Validar que el usuario pertenece al almacén
+  // Validar que el usuario pertenece al establecimiento
   private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
     const [userWarehouse] = await db
       .select()
@@ -85,7 +85,7 @@ export class PurchasesService {
       );
     
     if (!userWarehouse) {
-      throw new ForbiddenError(`No tienes permiso para realizar compras en este almacén`);
+      throw new ForbiddenError(`No tienes permiso para realizar compras en este establecimiento`);
     }
   }
 
@@ -379,7 +379,7 @@ export class PurchasesService {
     });
   }
 
-  // Query base con JOINs para obtener nombres de usuarios, almacén y moneda (para listados)
+  // Query base con JOINs para obtener nombres de usuarios, establecimiento y moneda (para listados)
   private async getPurchasesWithUserNames(whereCondition: any) {
     return await db
       .select({
@@ -421,7 +421,7 @@ export class PurchasesService {
   }
 
   // Obtener compras filtradas según permisos del usuario y rango de fechas
-  // RESTRICCIÓN: Solo ve compras de almacenes asignados al usuario
+  // RESTRICCIÓN: Solo ve compras de establecimientos asignados al usuario
   async getAllPurchases(
     userId: number, 
     userPermissions: string[], 
@@ -435,7 +435,7 @@ export class PurchasesService {
     const hasAccept = userPermissions.includes("purchases.accept");
     const hasCreate = userPermissions.includes("purchases.create");
 
-    // Obtener almacenes asignados al usuario
+    // Obtener establecimientos asignados al usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -443,7 +443,7 @@ export class PurchasesService {
 
     const assignedWarehouseIds = userWarehousesData.map(uw => uw.warehouseId);
 
-    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    // Si el usuario no tiene establecimientos asignados, no puede ver nada
     if (assignedWarehouseIds.length === 0) {
       return [];
     }
@@ -452,14 +452,14 @@ export class PurchasesService {
     const baseConditions: any[] = [
       gte(purchases.date, sql`${startDate}`),
       lte(purchases.date, sql`${endDate}`),
-      // RESTRICCIÓN: Solo almacenes asignados al usuario
+      // RESTRICCIÓN: Solo establecimientos asignados al usuario
       inArray(purchases.warehouseId, assignedWarehouseIds)
     ];
 
-    // Filtro opcional por almacén (debe estar en sus almacenes asignados)
+    // Filtro opcional por establecimiento (debe estar en sus establecimientos asignados)
     if (warehouseId) {
       if (!assignedWarehouseIds.includes(warehouseId)) {
-        // Silenciosamente retorna vacío si pide un almacén que no le pertenece
+        // Silenciosamente retorna vacío si pide un establecimiento que no le pertenece
         return [];
       }
       baseConditions.push(eq(purchases.warehouseId, warehouseId));
@@ -472,7 +472,7 @@ export class PurchasesService {
 
     const baseCondition = and(...baseConditions);
 
-    // Si tiene purchases.read → ve TODAS de sus almacenes (dentro del rango y filtros)
+    // Si tiene purchases.read → ve TODAS de sus establecimientos (dentro del rango y filtros)
     if (hasReadAll) {
       return await this.getPurchasesWithUserNames(baseCondition);
     }
@@ -502,7 +502,7 @@ export class PurchasesService {
       return [];
     }
 
-    // Combinar: (permisos OR) AND (condiciones base incluyendo restricción de almacenes)
+    // Combinar: (permisos OR) AND (condiciones base incluyendo restricción de establecimientos)
     return await this.getPurchasesWithUserNames(
       and(baseCondition, or(...permissionConditions))
     );
@@ -544,12 +544,12 @@ export class PurchasesService {
   }
 
   // Obtener compra por ID con detalles (para API externa, con nombres de usuarios)
-  // RESTRICCIÓN: Solo puede ver compras de sus almacenes asignados
+  // RESTRICCIÓN: Solo puede ver compras de sus establecimientos asignados
   async getPurchaseById(id: number, userId: number) {
-    // Primero obtener la compra básica para validar el almacén
+    // Primero obtener la compra básica para validar el establecimiento
     const purchaseBasic = await this.getPurchaseByIdInternal(id);
     
-    // Validar que el usuario pertenece al almacén de la compra
+    // Validar que el usuario pertenece al establecimiento de la compra
     await this.validateUserBelongsToWarehouse(userId, purchaseBasic.warehouseId);
 
     // Ahora obtener con todos los datos de usuarios
@@ -582,11 +582,11 @@ export class PurchasesService {
   }
 
   // Aceptar factura de compra (genera lotes y movimientos) - con transacción
-  // RESTRICCIÓN: Solo puede aceptar compras de sus almacenes asignados
+  // RESTRICCIÓN: Solo puede aceptar compras de sus establecimientos asignados
   async acceptPurchase(id: number, userId: number) {
     const purchase = await this.getPurchaseByIdInternal(id);
 
-    // Validar que el usuario pertenece al almacén de la compra
+    // Validar que el usuario pertenece al establecimiento de la compra
     await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
 
     if (purchase.status !== "PENDING") {
@@ -663,11 +663,11 @@ export class PurchasesService {
   }
 
   // Cancelar factura de compra (con transacción)
-  // RESTRICCIÓN: Solo puede cancelar compras de sus almacenes asignados
+  // RESTRICCIÓN: Solo puede cancelar compras de sus establecimientos asignados
   async cancelPurchase(id: number, cancellationReason: string, userId: number) {
     const purchase = await this.getPurchaseByIdInternal(id);
 
-    // Validar que el usuario pertenece al almacén de la compra
+    // Validar que el usuario pertenece al establecimiento de la compra
     await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
 
     if (purchase.status === "CANCELLED") {
@@ -773,9 +773,9 @@ export class PurchasesService {
   }
 
   // Reporte de facturas canceladas
-  // RESTRICCIÓN: Solo ve facturas canceladas de sus almacenes asignados
+  // RESTRICCIÓN: Solo ve facturas canceladas de sus establecimientos asignados
   async getCancelledPurchasesReport(userId: number, startDate?: string, endDate?: string) {
-    // Obtener almacenes asignados al usuario
+    // Obtener establecimientos asignados al usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -783,7 +783,7 @@ export class PurchasesService {
 
     const assignedWarehouseIds = userWarehousesData.map(uw => uw.warehouseId);
 
-    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    // Si el usuario no tiene establecimientos asignados, no puede ver nada
     if (assignedWarehouseIds.length === 0) {
       return [];
     }
@@ -810,8 +810,8 @@ export class PurchasesService {
 
   // ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
 
-  // Obtener almacenes disponibles del usuario (para selector de compra)
-  // Solo devuelve almacenes activos asignados al usuario
+  // Obtener establecimientos disponibles del usuario (para selector de compra)
+  // Solo devuelve establecimientos activos asignados al usuario
   async getUserWarehouses(userId: number) {
     const userWarehousesData = await db
       .select({
@@ -1017,7 +1017,7 @@ export class PurchasesService {
     warehouseId?: number,
     limit: number = 10
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -1093,7 +1093,7 @@ export class PurchasesService {
     // Condiciones solo aprobados
     const approvedConditions = [...baseConditions, eq(purchases.status, "APPROVED")];
 
-    // 2. Por almacén (solo aprobados)
+    // 2. Por establecimiento (solo aprobados)
     const byWarehouse = await db
       .select({
         warehouseId: purchases.warehouseId,
@@ -1189,7 +1189,7 @@ export class PurchasesService {
     // Obtener la compra
     const purchase = await this.getPurchaseByIdInternal(purchaseId);
     
-    // Validar que el usuario pertenece al almacén de la compra
+    // Validar que el usuario pertenece al establecimiento de la compra
     await this.validateUserBelongsToWarehouse(userId, purchase.warehouseId);
     
     // MEJORA: Ya no rechaza si hasPricing=true, ahora verifica items individuales
@@ -1316,7 +1316,7 @@ export class PurchasesService {
   // Obtener compras pendientes de precio (lotes bloqueados)
   // MEJORA: Ahora verifica que realmente haya items con lotes LOCKED
   async getPurchasesPendingPricing(userId: number) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)

@@ -90,7 +90,7 @@ export const getSalesMarginReportSchema = z.object({
   }),
 });
 
-// Schema para obtener productos disponibles para vender en un almacén
+// Schema para obtener productos disponibles para vender en un establecimiento
 export const getAvailableProductsSchema = z.object({
   params: z.object({
     warehouseId: z.string().transform(Number),

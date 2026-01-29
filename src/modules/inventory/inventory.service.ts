@@ -28,7 +28,7 @@ export class InventoryService {
     const limit = Math.min(100, Math.max(1, options.limit || 20));
     const offset = (page - 1) * limit;
 
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -36,10 +36,10 @@ export class InventoryService {
 
     let allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
 
-    // Si se especifica un almacén, validar acceso
+    // Si se especifica un establecimiento, validar acceso
     if (options.warehouseId) {
       if (!allowedWarehouseIds.includes(options.warehouseId)) {
-        throw new ForbiddenError("No tiene acceso a este almacén");
+        throw new ForbiddenError("No tiene acceso a este establecimiento");
       }
       allowedWarehouseIds = [options.warehouseId];
     }
@@ -119,7 +119,7 @@ export class InventoryService {
     };
   }
 
-  // Obtener stock actual de un producto en un almacén (desde cache o lotes)
+  // Obtener stock actual de un producto en un establecimiento (desde cache o lotes)
   async getStockByWarehouseAndProduct(warehouseId: number, productId: number) {
     // Calcular desde lotes activos (fuente de verdad)
     const stockFromLots = await lotService.getStockFromLots(warehouseId, productId);
@@ -131,7 +131,7 @@ export class InventoryService {
     };
   }
 
-  // Obtener stock completo de un almacén (desde cache, sincronizado con lotes)
+  // Obtener stock completo de un establecimiento (desde cache, sincronizado con lotes)
   async getStockByWarehouse(warehouseId: number) {
     // Obtener desde cache
     const stocks = await db
@@ -319,7 +319,7 @@ export class InventoryService {
     return stockFromLots >= quantity;
   }
 
-  // Obtener lotes activos de un producto en un almacén
+  // Obtener lotes activos de un producto en un establecimiento
   async getActiveLots(warehouseId: number, productId: number) {
     return await lotService.getActiveLotsByProductAndWarehouse(
       productId,
@@ -327,7 +327,7 @@ export class InventoryService {
     );
   }
 
-  // Obtener todos los lotes de un almacén
+  // Obtener todos los lotes de un establecimiento
   async getLotsByWarehouse(warehouseId: number) {
     return await lotService.getLotsByWarehouse(warehouseId);
   }
@@ -339,7 +339,7 @@ export class InventoryService {
 
   // Reporte de inventario valorizado (usando lotes para cálculo de costo)
   async getInventoryValueReport(userId: number, warehouseId?: number) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -347,10 +347,10 @@ export class InventoryService {
 
     let allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
 
-    // Si se especifica un almacén, validar que el usuario tenga acceso
+    // Si se especifica un establecimiento, validar que el usuario tenga acceso
     if (warehouseId) {
       if (!allowedWarehouseIds.includes(warehouseId)) {
-        throw new ForbiddenError("No tiene acceso a este almacén");
+        throw new ForbiddenError("No tiene acceso a este establecimiento");
       }
       allowedWarehouseIds = [warehouseId];
     }
@@ -392,7 +392,7 @@ export class InventoryService {
       )
       .orderBy(asc(inventoryLots.entryDate));
 
-    // Agrupar por almacén
+    // Agrupar por establecimiento
     const byWarehouse: any[] = [];
     const warehouseMap = new Map<number, any>();
 
@@ -445,7 +445,7 @@ export class InventoryService {
       prodData.lotCount++;
     }
 
-    // Construir resultado por almacén
+    // Construir resultado por establecimiento
     let overallTotalCostCUP = 0;
     let overallTotalProducts = 0;
 
@@ -491,7 +491,7 @@ export class InventoryService {
     endDate?: string,
     warehouseId?: number
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -501,7 +501,7 @@ export class InventoryService {
 
     if (warehouseId) {
       if (!allowedWarehouseIds.includes(warehouseId)) {
-        throw new ForbiddenError("No tiene acceso a este almacén");
+        throw new ForbiddenError("No tiene acceso a este establecimiento");
       }
       allowedWarehouseIds = [warehouseId];
     }

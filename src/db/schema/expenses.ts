@@ -25,7 +25,7 @@ export const expenses = mysqlTable(
       .notNull()
       .references(() => expenseTypes.id),
     
-    // Almacén opcional - null para gastos corporativos/generales
+    // Establecimiento opcional - null para gastos corporativos/generales
     warehouseId: int("warehouse_id")
       .references(() => warehouses.id),
     

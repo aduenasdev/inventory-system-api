@@ -13,10 +13,10 @@ export async function createWarehouse(data: {
   ubicacion?: string;
   active?: boolean;
 }) {
-  // Verificar si ya existe un almacén con ese nombre
+  // Verificar si ya existe un establecimiento con ese nombre
   const existing = await db.select().from(warehouses).where(eq(warehouses.name, data.name));
   if (existing.length > 0) {
-    throw new ConflictError(`Ya existe un almacén con el nombre "${data.name}"`);
+    throw new ConflictError(`Ya existe un establecimiento con el nombre "${data.name}"`);
   }
   
   const [insert] = await db.insert(warehouses).values(data);
@@ -75,10 +75,10 @@ export async function updateWarehouse(
   const updateData: any = {};
   
   if (data.name !== undefined) {
-    // Verificar si el nombre ya está en uso por otro almacén
+    // Verificar si el nombre ya está en uso por otro establecimiento
     const existing = await db.select().from(warehouses).where(eq(warehouses.name, data.name));
     if (existing.length > 0 && existing[0].id !== warehouseId) {
-      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otro almacén`);
+      throw new ConflictError(`El nombre "${data.name}" ya está en uso por otro establecimiento`);
     }
     updateData.name = data.name;
   }
@@ -91,13 +91,13 @@ export async function updateWarehouse(
   
   await db.update(warehouses).set(updateData).where(eq(warehouses.id, warehouseId));
   
-  // Retornar el almacén actualizado
+  // Retornar el establecimiento actualizado
   const [updated] = await db.select().from(warehouses).where(eq(warehouses.id, warehouseId));
   return updated;
 }
 
 export async function deleteWarehouse(warehouseId: number) {
-  // Verificar si el almacén tiene usuarios asignados
+  // Verificar si el establecimiento tiene usuarios asignados
   const usersInWarehouse = await db
     .select()
     .from(userWarehouses)
@@ -105,33 +105,33 @@ export async function deleteWarehouse(warehouseId: number) {
     .limit(1);
   
   if (usersInWarehouse.length > 0) {
-    throw new ValidationError("No se puede eliminar el almacén porque tiene usuarios asignados");
+    throw new ValidationError("No se puede eliminar el establecimiento porque tiene usuarios asignados");
   }
   
   await db.delete(warehouses).where(eq(warehouses.id, warehouseId));
-  return { message: "Almacén eliminado" };
+  return { message: "Establecimiento eliminado" };
 }
 
 export async function assignUserToWarehouse(warehouseId: number, userId: number) {
-  // Verificar si el usuario ya está asignado a ese almacén
+  // Verificar si el usuario ya está asignado a ese establecimiento
   const existing = await db
     .select()
     .from(userWarehouses)
     .where(and(eq(userWarehouses.warehouseId, warehouseId), eq(userWarehouses.userId, userId)));
   
   if (existing.length > 0) {
-    throw new ConflictError("El usuario ya está asignado a ese almacén");
+    throw new ConflictError("El usuario ya está asignado a ese establecimiento");
   }
   
   await db.insert(userWarehouses).values({ warehouseId, userId });
-  return { message: "Usuario asignado al almacén" };
+  return { message: "Usuario asignado al establecimiento" };
 }
 
 export async function removeUserFromWarehouse(warehouseId: number, userId: number) {
   await db
     .delete(userWarehouses)
     .where(and(eq(userWarehouses.warehouseId, warehouseId), eq(userWarehouses.userId, userId)));
-  return { message: "Usuario removido del almacén" };
+  return { message: "Usuario removido del establecimiento" };
 }
 
 export async function getUsersInWarehouse(warehouseId: number) {

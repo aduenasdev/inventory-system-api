@@ -68,7 +68,7 @@ export class ExpensesService {
     return `GS-${year}-${nextNumber.toString().padStart(5, "0")}`;
   }
 
-  // Validar que el usuario pertenece al almacén
+  // Validar que el usuario pertenece al establecimiento
   private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
     const [userWarehouse] = await db
       .select()
@@ -81,7 +81,7 @@ export class ExpensesService {
       );
 
     if (!userWarehouse) {
-      throw new ForbiddenError("No tienes permiso para registrar gastos en este almacén");
+      throw new ForbiddenError("No tienes permiso para registrar gastos en este establecimiento");
     }
   }
 
@@ -118,7 +118,7 @@ export class ExpensesService {
     return parseFloat(rate.rate);
   }
 
-  // Obtener almacenes del usuario
+  // Obtener establecimientos del usuario
   async getUserWarehouses(userId: number) {
     return await db
       .select({
@@ -170,7 +170,7 @@ export class ExpensesService {
     description?: string;
     userId: number;
   }) {
-    // Si se especifica almacén, validar que el usuario pertenece a él
+    // Si se especifica establecimiento, validar que el usuario pertenece a él
     if (data.warehouseId) {
       await this.validateUserBelongsToWarehouse(data.userId, data.warehouseId);
     }
@@ -194,7 +194,7 @@ export class ExpensesService {
       throw new ValidationError("El tipo de gasto no está activo");
     }
 
-    // Validar almacén solo si se especifica
+    // Validar establecimiento solo si se especifica
     if (data.warehouseId) {
       const [warehouse] = await db
         .select()
@@ -202,7 +202,7 @@ export class ExpensesService {
         .where(eq(warehouses.id, data.warehouseId));
 
       if (!warehouse) {
-        throw new NotFoundError("Almacén no encontrado");
+        throw new NotFoundError("Establecimiento no encontrado");
       }
     }
 
@@ -259,7 +259,7 @@ export class ExpensesService {
     expenseTypeId?: number,
     status?: string
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
     // Condiciones base de fecha
@@ -268,13 +268,13 @@ export class ExpensesService {
       lte(expenses.date, sql`${endDate}`),
     ];
 
-    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    // Filtrar: gastos de establecimientos del usuario O gastos corporativos (sin establecimiento)
     if (userWarehouseIds.length > 0) {
       conditions.push(
         sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
       );
     } else {
-      // Si no tiene almacenes, solo puede ver gastos corporativos (sin almacén)
+      // Si no tiene establecimientos, solo puede ver gastos corporativos (sin establecimiento)
       conditions.push(sql`${expenses.warehouseId} IS NULL`);
     }
 
@@ -447,7 +447,7 @@ export class ExpensesService {
     endDate: string,
     warehouseId?: number
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
     // Condiciones base
@@ -457,7 +457,7 @@ export class ExpensesService {
       eq(expenses.status, "APPROVED"),
     ];
 
-    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    // Filtrar: gastos de establecimientos del usuario O gastos corporativos (sin establecimiento)
     if (userWarehouseIds.length > 0) {
       conditions.push(
         sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
@@ -495,7 +495,7 @@ export class ExpensesService {
       .groupBy(expenses.expenseTypeId, expenseTypes.name)
       .orderBy(desc(sql`total`));
 
-    // Por almacén (incluye "Corporativo" para gastos sin almacén)
+    // Por establecimiento (incluye "Corporativo" para gastos sin establecimiento)
     const byWarehouse = await db
       .select({
         warehouseId: expenses.warehouseId,
@@ -531,7 +531,7 @@ export class ExpensesService {
     expenseTypeId?: number,
     limit: number = 10
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehouseIds = (await this.getUserWarehouses(userId)).map((w) => w.id);
 
     // Condiciones base
@@ -540,7 +540,7 @@ export class ExpensesService {
       lte(expenses.date, sql`${endDate}`),
     ];
 
-    // Filtrar: gastos de almacenes del usuario O gastos corporativos (sin almacén)
+    // Filtrar: gastos de establecimientos del usuario O gastos corporativos (sin establecimiento)
     if (userWarehouseIds.length > 0) {
       baseConditions.push(
         sql`(${expenses.warehouseId} IS NULL OR ${expenses.warehouseId} IN (${sql.raw(userWarehouseIds.join(","))}))`
@@ -623,7 +623,7 @@ export class ExpensesService {
       .groupBy(expenses.expenseTypeId, expenseTypes.name)
       .orderBy(desc(sql`total`));
 
-    // 3. Por almacén (solo aprobados, incluye "Corporativo" para null)
+    // 3. Por establecimiento (solo aprobados, incluye "Corporativo" para null)
     const byWarehouse = await db
       .select({
         warehouseId: expenses.warehouseId,

@@ -43,8 +43,8 @@ const router = Router();
 
 // ========== ENDPOINTS PARA CREAR VENTAS ==========
 
-// GET /sales/warehouses - Obtener almacenes disponibles del usuario
-// Usar este endpoint primero para mostrar selector de almacén
+// GET /sales/warehouses - Obtener establecimientos disponibles del usuario
+// Usar este endpoint primero para mostrar selector de establecimiento
 router.get(
   "/warehouses",
   authMiddleware,
@@ -94,8 +94,8 @@ router.get(
   checkExchangeRates
 );
 
-// GET /sales/products/:warehouseId - Obtener productos disponibles en un almacén
-// Solo muestra productos con stock > 0 en almacenes del usuario
+// GET /sales/products/:warehouseId - Obtener productos disponibles en un establecimiento
+// Solo muestra productos con stock > 0 en establecimientos del usuario
 router.get(
   "/products/:warehouseId",
   authMiddleware,

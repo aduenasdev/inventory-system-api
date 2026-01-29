@@ -106,7 +106,7 @@ export const getAdjustmentsReport = async (req: Request, res: Response) => {
 
 // ========== ENDPOINTS DE VISIBILIDAD DE LOTES ==========
 
-// GET /inventory/lots/warehouse/:warehouseId - Listar lotes de un almacén
+// GET /inventory/lots/warehouse/:warehouseId - Listar lotes de un establecimiento
 export const getLotsByWarehouse = async (req: Request, res: Response) => {
   try {
     const { warehouseId } = req.params;
@@ -117,7 +117,7 @@ export const getLotsByWarehouse = async (req: Request, res: Response) => {
   }
 };
 
-// GET /inventory/lots/product/:productId/warehouse/:warehouseId - Lotes activos de un producto en un almacén
+// GET /inventory/lots/product/:productId/warehouse/:warehouseId - Lotes activos de un producto en un establecimiento
 export const getActiveLotsByProduct = async (req: Request, res: Response) => {
   try {
     const { productId, warehouseId } = req.params;

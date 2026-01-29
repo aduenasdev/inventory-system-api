@@ -202,7 +202,7 @@ export class LotService {
   }
 
   /**
-   * Obtener lotes activos de un producto en un almacén
+   * Obtener lotes activos de un producto en un establecimiento
    */
   async getActiveLotsByProductAndWarehouse(productId: number, warehouseId: number) {
     return await db
@@ -233,7 +233,7 @@ export class LotService {
   }
 
   /**
-   * Obtener todos los lotes de un almacén
+   * Obtener todos los lotes de un establecimiento
    */
   async getLotsByWarehouse(warehouseId: number, includeExhausted = false) {
     const conditions = [eq(inventoryLots.warehouseId, warehouseId)];
@@ -425,7 +425,7 @@ export class LotService {
   }
 
   /**
-   * Mover lote completo a otro almacén (traslado completo)
+   * Mover lote completo a otro establecimiento (traslado completo)
    * @param tx - Transacción opcional para garantizar atomicidad
    */
   async moveLotToWarehouse(lotId: number, destinationWarehouseId: number, tx?: any): Promise<void> {
@@ -433,7 +433,7 @@ export class LotService {
     const lot = await this.getLotById(lotId);
     const quantity = parseFloat(lot.currentQuantity);
 
-    // Actualizar caché del almacén origen (restar)
+    // Actualizar caché del establecimiento origen (restar)
     await this.updateInventoryCache(lot.warehouseId, lot.productId, -quantity, database);
 
     // Mover el lote
@@ -442,7 +442,7 @@ export class LotService {
       .set({ warehouseId: destinationWarehouseId })
       .where(eq(inventoryLots.id, lotId));
 
-    // Actualizar caché del almacén destino (sumar)
+    // Actualizar caché del establecimiento destino (sumar)
     await this.updateInventoryCache(destinationWarehouseId, lot.productId, quantity, database);
   }
 
@@ -493,7 +493,7 @@ export class LotService {
   }
 
   /**
-   * Obtener stock total de un producto en un almacén (suma de lotes activos)
+   * Obtener stock total de un producto en un establecimiento (suma de lotes activos)
    */
   async getStockFromLots(warehouseId: number, productId: number): Promise<number> {
     const lots = await db

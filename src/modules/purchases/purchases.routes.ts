@@ -36,7 +36,7 @@ const router = Router();
 
 // ========== ENDPOINTS AUXILIARES PARA FRONTEND (deben ir antes de rutas con :id) ==========
 
-// GET /purchases/warehouses - Obtener almacenes disponibles del usuario
+// GET /purchases/warehouses - Obtener establecimientos disponibles del usuario
 router.get(
   "/warehouses",
   authMiddleware,

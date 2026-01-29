@@ -31,7 +31,7 @@ const router = Router();
 
 // ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
 
-// Obtener almacenes origen (solo los asignados al usuario)
+// Obtener establecimientos origen (solo los asignados al usuario)
 router.get(
   "/warehouses/origin",
   authMiddleware,
@@ -39,7 +39,7 @@ router.get(
   getOriginWarehouses
 );
 
-// Obtener almacenes destino (todos los activos)
+// Obtener establecimientos destino (todos los activos)
 router.get(
   "/warehouses/destination",
   authMiddleware,
@@ -47,7 +47,7 @@ router.get(
   getDestinationWarehouses
 );
 
-// Obtener productos con stock disponible en un almacén
+// Obtener productos con stock disponible en un establecimiento
 router.get(
   "/products/:warehouseId",
   authMiddleware,

@@ -48,7 +48,7 @@ export class SalesService {
     return `FV-${year}-${nextNumber.toString().padStart(5, "0")}`;
   }
 
-  // Validar que el almacén existe
+  // Validar que el establecimiento existe
   private async validateWarehouseExists(warehouseId: number): Promise<void> {
     const [warehouse] = await db
       .select({ id: warehouses.id })
@@ -56,7 +56,7 @@ export class SalesService {
       .where(eq(warehouses.id, warehouseId));
     
     if (!warehouse) {
-      throw new NotFoundError(`Almacén con ID ${warehouseId} no encontrado`);
+      throw new NotFoundError(`Establecimiento con ID ${warehouseId} no encontrado`);
     }
   }
 
@@ -198,7 +198,7 @@ export class SalesService {
     }
   }
 
-  // Validar que el usuario pertenece al almacén
+  // Validar que el usuario pertenece al establecimiento
   private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
     const [userWarehouse] = await db
       .select()
@@ -211,7 +211,7 @@ export class SalesService {
       );
     
     if (!userWarehouse) {
-      throw new ForbiddenError(`No tienes permiso para realizar ventas en este almacén`);
+      throw new ForbiddenError(`No tienes permiso para realizar ventas en este establecimiento`);
     }
   }
 
@@ -503,7 +503,7 @@ export class SalesService {
     }
   }
 
-  // Query base con JOINs para obtener nombres de usuarios, almacén y moneda (para listados)
+  // Query base con JOINs para obtener nombres de usuarios, establecimiento y moneda (para listados)
   private async getSalesWithUserNames(
     whereCondition: any,
     pagination?: { page: number; limit: number }
@@ -592,7 +592,7 @@ export class SalesService {
     const hasCreate = userPermissions.includes("sales.create");
     const hasPaid = userPermissions.includes("sales.paid");
 
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -600,7 +600,7 @@ export class SalesService {
 
     const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
 
-    // Si el usuario no tiene almacenes asignados, no puede ver nada
+    // Si el usuario no tiene establecimientos asignados, no puede ver nada
     if (allowedWarehouseIds.length === 0) {
       return {
         data: [],
@@ -621,10 +621,10 @@ export class SalesService {
       lte(sales.date, sql`${endDate}`)
     ];
 
-    // Filtro por almacén: si especifica uno, verificar que tenga acceso
-    // Si no especifica, filtrar por todos sus almacenes
+    // Filtro por establecimiento: si especifica uno, verificar que tenga acceso
+    // Si no especifica, filtrar por todos sus establecimientos
     if (warehouseId) {
-      // Verificar que el usuario tenga acceso al almacén solicitado
+      // Verificar que el usuario tenga acceso al establecimiento solicitado
       if (!allowedWarehouseIds.includes(warehouseId)) {
         return {
           data: [],
@@ -640,7 +640,7 @@ export class SalesService {
       }
       baseConditions.push(eq(sales.warehouseId, warehouseId));
     } else {
-      // Sin filtro específico: mostrar de todos sus almacenes
+      // Sin filtro específico: mostrar de todos sus establecimientos
       baseConditions.push(inArray(sales.warehouseId, allowedWarehouseIds));
     }
 
@@ -656,7 +656,7 @@ export class SalesService {
 
     const baseCondition = and(...baseConditions);
 
-    // Si tiene sales.read → ve TODAS (dentro del rango, almacenes y filtros)
+    // Si tiene sales.read → ve TODAS (dentro del rango, establecimientos y filtros)
     if (hasReadAll) {
       const [data, totalCount] = await Promise.all([
         this.getSalesWithUserNames(baseCondition, { page: validatedPage, limit: validatedLimit }),
@@ -710,7 +710,7 @@ export class SalesService {
       };
     }
 
-    // Combinar: (permisos OR) AND (condiciones base incluyendo almacenes)
+    // Combinar: (permisos OR) AND (condiciones base incluyendo establecimientos)
     const finalCondition = and(baseCondition, or(...permissionConditions));
     const [data, totalCount] = await Promise.all([
       this.getSalesWithUserNames(finalCondition, { page: validatedPage, limit: validatedLimit }),
@@ -1211,7 +1211,7 @@ export class SalesService {
     endDate: string,
     targetCurrencyId: number
   ) {
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -1319,16 +1319,16 @@ export class SalesService {
     };
   }
 
-  // Obtener productos disponibles para vender en un almacén
-  // Solo muestra productos con stock > 0 en el almacén
-  // Verifica que el usuario tenga acceso al almacén
+  // Obtener productos disponibles para vender en un establecimiento
+  // Solo muestra productos con stock > 0 en el establecimiento
+  // Verifica que el usuario tenga acceso al establecimiento
   async getAvailableProducts(
     userId: number,
     warehouseId: number,
     search?: string,
     categoryId?: number
   ) {
-    // Verificar que el usuario tenga acceso al almacén
+    // Verificar que el usuario tenga acceso al establecimiento
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -1337,20 +1337,20 @@ export class SalesService {
     const allowedWarehouseIds = userWarehousesData.map((w) => w.warehouseId);
 
     if (!allowedWarehouseIds.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
-    // Obtener información del almacén
+    // Obtener información del establecimiento
     const [warehouse] = await db
       .select()
       .from(warehouses)
       .where(eq(warehouses.id, warehouseId));
 
     if (!warehouse) {
-      throw new NotFoundError("Almacén no encontrado");
+      throw new NotFoundError("Establecimiento no encontrado");
     }
 
-    // Obtener lotes activos (con stock > 0) del almacén
+    // Obtener lotes activos (con stock > 0) del establecimiento
     // Agrupados por producto
     const lotsWithStock = await db
       .select({
@@ -1438,7 +1438,7 @@ export class SalesService {
     };
   }
 
-  // Obtener almacenes activos disponibles para el usuario (para selector de venta)
+  // Obtener establecimientos activos disponibles para el usuario (para selector de venta)
   async getUserWarehouses(userId: number) {
     const userWarehousesData = await db
       .select({
@@ -1628,7 +1628,7 @@ export class SalesService {
     const page = Math.max(1, filters.page || 1);
     const limit = Math.min(Math.max(1, filters.limit || 20), 100);
     
-    // Obtener almacenes del usuario
+    // Obtener establecimientos del usuario
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
       .from(userWarehouses)
@@ -1646,10 +1646,10 @@ export class SalesService {
       lte(sales.date, sql`${filters.endDate}`),
     ];
 
-    // Filtro por almacén (validar que tenga acceso)
+    // Filtro por establecimiento (validar que tenga acceso)
     if (filters.warehouseId) {
       if (!allowedWarehouseIds.includes(filters.warehouseId)) {
-        throw new ForbiddenError("No tienes acceso a este almacén");
+        throw new ForbiddenError("No tienes acceso a este establecimiento");
       }
       conditions.push(eq(sales.warehouseId, filters.warehouseId));
     } else {
@@ -2014,7 +2014,7 @@ export class SalesService {
   private async getReportFilterOptions(userId: number, allowedWarehouseIds: number[], userPermissions: string[]) {
     const hasPaidPermission = userPermissions.includes("sales.paid");
     
-    // Almacenes del usuario
+    // establecimientos del usuario
     const warehouseOptions = await db
       .select({
         id: warehouses.id,
@@ -2074,7 +2074,7 @@ export class SalesService {
       { id: "false", name: "No pagada" },
     ] : [];
 
-    // Usuarios que han creado ventas en los almacenes del usuario
+    // Usuarios que han creado ventas en los establecimientos del usuario
     const creatorOptions = await db
       .select({
         id: users.id,

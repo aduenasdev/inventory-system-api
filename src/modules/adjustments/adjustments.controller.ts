@@ -3,7 +3,7 @@ import { adjustmentsService } from "./adjustments.service";
 
 // ========== ENDPOINTS AUXILIARES ==========
 
-// GET /adjustments/warehouses - Almacenes del usuario
+// GET /adjustments/warehouses - establecimientos del usuario
 export const getWarehouses = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;

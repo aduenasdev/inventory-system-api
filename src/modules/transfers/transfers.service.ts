@@ -58,7 +58,7 @@ export class TransfersService {
     }
   }
 
-  // Validar que el almacén existe
+  // Validar que el establecimiento existe
   private async validateWarehouseExists(warehouseId: number): Promise<void> {
     const [warehouse] = await db
       .select({ id: warehouses.id })
@@ -66,11 +66,11 @@ export class TransfersService {
       .where(eq(warehouses.id, warehouseId));
     
     if (!warehouse) {
-      throw new NotFoundError(`Almacén con ID ${warehouseId} no encontrado`);
+      throw new NotFoundError(`Establecimiento con ID ${warehouseId} no encontrado`);
     }
   }
 
-  // Validar que el usuario pertenece al almacén
+  // Validar que el usuario pertenece al establecimiento
   private async validateUserBelongsToWarehouse(userId: number, warehouseId: number): Promise<void> {
     const [userWarehouse] = await db
       .select()
@@ -83,11 +83,11 @@ export class TransfersService {
       );
     
     if (!userWarehouse) {
-      throw new ForbiddenError(`No tienes permiso para operar en este almacén`);
+      throw new ForbiddenError(`No tienes permiso para operar en este establecimiento`);
     }
   }
 
-  // Obtener almacenes asignados al usuario
+  // Obtener establecimientos asignados al usuario
   private async getUserWarehouseIds(userId: number): Promise<number[]> {
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
@@ -99,7 +99,7 @@ export class TransfersService {
 
   // ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
 
-  // Obtener almacenes origen (solo los asignados al usuario)
+  // Obtener establecimientos origen (solo los asignados al usuario)
   async getOriginWarehouses(userId: number) {
     const userWarehouseIds = await this.getUserWarehouseIds(userId);
     
@@ -123,7 +123,7 @@ export class TransfersService {
       .orderBy(warehouses.name);
   }
 
-  // Obtener almacenes destino (todos los activos)
+  // Obtener establecimientos destino (todos los activos)
   async getDestinationWarehouses() {
     return await db
       .select({
@@ -136,12 +136,12 @@ export class TransfersService {
       .orderBy(warehouses.name);
   }
 
-  // Obtener productos con stock disponible en un almacén
+  // Obtener productos con stock disponible en un establecimiento
   async getAvailableProducts(userId: number, warehouseId: number, search?: string, categoryId?: number) {
-    // Validar que el usuario tiene acceso al almacén origen
+    // Validar que el usuario tiene acceso al establecimiento origen
     await this.validateUserBelongsToWarehouse(userId, warehouseId);
 
-    // Obtener productos con stock en el almacén
+    // Obtener productos con stock en el establecimiento
     const conditions: any[] = [
       eq(inventoryLots.warehouseId, warehouseId),
       eq(inventoryLots.status, "ACTIVE"),
@@ -225,7 +225,7 @@ export class TransfersService {
     userPermissions: string[];
   }) {
     if (data.originWarehouseId === data.destinationWarehouseId) {
-      throw new ValidationError("El almacén de origen y destino no pueden ser el mismo");
+      throw new ValidationError("El establecimiento de origen y destino no pueden ser el mismo");
     }
 
     // Validar que hay al menos un detalle
@@ -245,7 +245,7 @@ export class TransfersService {
     await this.validateWarehouseExists(data.originWarehouseId);
     await this.validateWarehouseExists(data.destinationWarehouseId);
     
-    // Validar que el usuario pertenece al almacén ORIGEN
+    // Validar que el usuario pertenece al establecimiento ORIGEN
     await this.validateUserBelongsToWarehouse(data.userId, data.originWarehouseId);
 
     // Fecha del traslado: usar la proporcionada o la fecha actual
@@ -324,7 +324,7 @@ export class TransfersService {
     }).then(async (transferId) => {
       const completeTransfer = await this.getTransferById(transferId);
       return {
-        message: "Traslado creado exitosamente. Pendiente de aprobación por el almacén destino.",
+        message: "Traslado creado exitosamente. Pendiente de aprobación por el establecimiento destino.",
         data: completeTransfer
       };
     });
@@ -347,7 +347,7 @@ export class TransfersService {
     const conditions: any[] = [
       gte(transfers.date, sql`${startDate}`),
       lte(transfers.date, sql`${endDate || startDate}`),
-      // Siempre filtrar por almacenes del usuario (origen o destino)
+      // Siempre filtrar por establecimientos del usuario (origen o destino)
       or(
         inArray(transfers.originWarehouseId, userWarehouseIds),
         inArray(transfers.destinationWarehouseId, userWarehouseIds)
@@ -476,7 +476,7 @@ export class TransfersService {
       throw new ValidationError("Solo se pueden aceptar traslados en estado PENDING");
     }
 
-    // Validar que el usuario pertenece al almacén DESTINO
+    // Validar que el usuario pertenece al establecimiento DESTINO
     await this.validateUserBelongsToWarehouse(userId, transfer.destinationWarehouseId);
 
     // Revalidar stock al momento de aceptar
@@ -632,7 +632,7 @@ export class TransfersService {
       throw new ValidationError("Solo se pueden rechazar traslados en estado PENDING");
     }
 
-    // Validar que el usuario pertenece al almacén DESTINO
+    // Validar que el usuario pertenece al establecimiento DESTINO
     await this.validateUserBelongsToWarehouse(userId, transfer.destinationWarehouseId);
 
     await db
@@ -660,8 +660,8 @@ export class TransfersService {
       throw new ValidationError("Solo se pueden anular traslados en estado APPROVED");
     }
 
-    // Validar que el usuario pertenece al almacén DESTINO (el que recibió puede cancelar)
-    // O al almacén ORIGEN (el que envió puede cancelar)
+    // Validar que el usuario pertenece al establecimiento DESTINO (el que recibió puede cancelar)
+    // O al establecimiento ORIGEN (el que envió puede cancelar)
     const userWarehouseIds = await this.getUserWarehouseIds(userId);
     if (!userWarehouseIds.includes(transfer.originWarehouseId) && 
         !userWarehouseIds.includes(transfer.destinationWarehouseId)) {
@@ -698,7 +698,7 @@ export class TransfersService {
         const [product] = await db.select().from(products).where(eq(products.id, lot.productId));
         throw new ValidationError(
           `No se puede anular el traslado: el producto "${product.name}" (lote ${lot.lotCode}) ` +
-          `tiene ${consumed.toFixed(2)} unidades consumidas en el almacén destino. ` +
+          `tiene ${consumed.toFixed(2)} unidades consumidas en el establecimiento destino. ` +
           `Esto rompería la contabilidad del inventario.`
         );
       }
@@ -890,7 +890,7 @@ export class TransfersService {
     }).then(async (transferId) => {
       const completeTransfer = await this.getTransferById(transferId);
       return {
-        message: "Traslado anulado exitosamente. Los lotes han sido revertidos al almacén origen.",
+        message: "Traslado anulado exitosamente. Los lotes han sido revertidos al establecimiento origen.",
         data: completeTransfer
       };
     });

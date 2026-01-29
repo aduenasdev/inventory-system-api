@@ -20,7 +20,7 @@ import { ForbiddenError, NotFoundError } from "../../utils/errors";
 const BASE_CURRENCY_ID = 1;
 
 export class ReportsService {
-  // Obtener almacenes asignados al usuario
+  // Obtener establecimientos asignados al usuario
   private async getUserWarehouses(userId: number): Promise<number[]> {
     const userWarehousesData = await db
       .select({ warehouseId: userWarehouses.warehouseId })
@@ -30,11 +30,11 @@ export class ReportsService {
     return userWarehousesData.map((w) => w.warehouseId);
   }
 
-  // Validar que el usuario puede acceder a un almacén
+  // Validar que el usuario puede acceder a un establecimiento
   private async validateWarehouseAccess(userId: number, warehouseId: number): Promise<void> {
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (!allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
   }
 
@@ -45,20 +45,20 @@ export class ReportsService {
     productId?: number,
     categoryId?: number
   ) {
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return { warehouses: [], summary: { totalProducts: 0, totalStock: "0.00" } };
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
     const conditions: any[] = [eq(inventoryLots.status, "ACTIVE")];
 
-    // Filtrar por almacén(es)
+    // Filtrar por establecimiento(es)
     if (warehouseId) {
       conditions.push(eq(inventoryLots.warehouseId, warehouseId));
     } else {
@@ -139,15 +139,15 @@ export class ReportsService {
     productId?: number,
     categoryId?: number
   ) {
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return { warehouses: [], summary: { totalProducts: 0, totalValue: "0.00", totalStock: "0.00" } };
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
     const conditions: any[] = [eq(inventoryLots.status, "ACTIVE")];
@@ -226,18 +226,18 @@ export class ReportsService {
   // ========== REPORTE 3: PRODUCTOS SIN STOCK / BAJO MÍNIMO ==========
   // Ahora usa el minStock configurado en cada producto
   async getLowStock(userId: number, warehouseId?: number, useProductMinStock: boolean = true) {
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return { products: [], summary: { totalProducts: 0 } };
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
-    // Obtener stock agrupado por almacén y producto
+    // Obtener stock agrupado por establecimiento y producto
     const stockData = await db
       .select({
         warehouseId: inventoryLots.warehouseId,
@@ -327,15 +327,15 @@ export class ReportsService {
     type?: string,
     productId?: number
   ) {
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return { movements: [], summary: { totalMovements: 0 } };
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
     const conditions: any[] = [
@@ -406,15 +406,15 @@ export class ReportsService {
       throw new NotFoundError("Producto no encontrado");
     }
 
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return { product: null, entries: [], summary: { totalQuantity: "0.00", totalValue: "0.00" } };
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
     const conditions: any[] = [eq(inventoryMovements.productId, productId)];
@@ -501,15 +501,15 @@ export class ReportsService {
     warehouseId?: number,
     includeDetails?: boolean
   ) {
-    // Obtener almacenes permitidos
+    // Obtener establecimientos permitidos
     const allowedWarehouses = await this.getUserWarehouses(userId);
     if (allowedWarehouses.length === 0) {
       return this.getEmptyProfitReport(startDate, endDate);
     }
 
-    // Validar acceso si especifica almacén
+    // Validar acceso si especifica establecimiento
     if (warehouseId && !allowedWarehouses.includes(warehouseId)) {
-      throw new ForbiddenError("No tienes acceso a este almacén");
+      throw new ForbiddenError("No tienes acceso a este establecimiento");
     }
 
     const warehouseFilter = warehouseId 
@@ -636,7 +636,7 @@ export class ReportsService {
     const purchasesCount = purchasesData[0]?.count || 0;
     const transfersCount = transfersData[0]?.count || 0;
 
-    // ========== AGRUPAR POR ALMACÉN ==========
+    // ========== AGRUPAR POR Establecimiento ==========
     const byWarehouseMap = new Map<number | null, {
       warehouseId: number | null;
       warehouseName: string;
@@ -647,7 +647,7 @@ export class ReportsService {
       unitsSold: number;
     }>();
 
-    // Procesar ventas por almacén
+    // Procesar ventas por establecimiento
     salesData.forEach((sale) => {
       const wId = sale.warehouseId;
       const current = byWarehouseMap.get(wId) || {
@@ -672,7 +672,7 @@ export class ReportsService {
       byWarehouseMap.set(wId, current);
     });
 
-    // Procesar gastos por almacén
+    // Procesar gastos por establecimiento
     expensesData.forEach((expense) => {
       const wId = expense.warehouseId;
       const current = byWarehouseMap.get(wId) || {
@@ -995,9 +995,9 @@ export class ReportsService {
     lines.push(`Cantidad de Traslados,${report.summary.transfersCount}`);
     lines.push("");
 
-    // Por Almacén
-    lines.push("=== POR ALMACÉN ===");
-    lines.push("Almacén,Ingresos,Costo Ventas,Utilidad Bruta,Margen %,Gastos,Utilidad Operativa");
+    // Por Establecimiento
+    lines.push("=== POR Establecimiento ===");
+    lines.push("Establecimiento,Ingresos,Costo Ventas,Utilidad Bruta,Margen %,Gastos,Utilidad Operativa");
     report.byWarehouse.forEach((w) => {
       lines.push(`${w.warehouseName},${w.grossRevenue},${w.costOfGoodsSold},${w.grossProfit},${w.grossMarginPercent},${w.operatingExpenses},${w.operatingProfit}`);
     });
@@ -1058,15 +1058,15 @@ export class ReportsService {
     }
   ) {
     try {
-      // Obtener almacenes permitidos
+      // Obtener establecimientos permitidos
       const allowedWarehouses = await this.getUserWarehouses(userId);
       if (allowedWarehouses.length === 0) {
         return this.getEmptyInventoryValuation();
       }
 
-      // Validar acceso si especifica almacén
+      // Validar acceso si especifica establecimiento
       if (options.warehouseId && !allowedWarehouses.includes(options.warehouseId)) {
-        throw new ForbiddenError("No tienes acceso a este almacén");
+        throw new ForbiddenError("No tienes acceso a este establecimiento");
       }
 
       const warehouseFilter = options.warehouseId 
@@ -1122,7 +1122,7 @@ export class ReportsService {
         unitId: units.id,
         unitName: units.name,
         unitShortName: units.shortName,
-        // Almacén
+        // Establecimiento
         warehouseId: warehouses.id,
         warehouseName: warehouses.name,
         warehouseDireccion: warehouses.direccion,
@@ -1188,7 +1188,7 @@ export class ReportsService {
       filteredLots = lotsWithAge.filter(lot => lot.currentQuantity > 0);
     }
 
-    // ========== 2. AGRUPAR POR PRODUCTO/ALMACÉN ==========
+    // ========== 2. AGRUPAR POR PRODUCTO/Establecimiento ==========
     const productMap = new Map<string, {
       productId: number;
       productCode: string;
@@ -1275,7 +1275,7 @@ export class ReportsService {
       method: "FIFO" as const, // Método de valuación
       currency: "CUP",
       totalProducts: new Set(productList.map(p => p.productId)).size,
-      totalSKUs: productList.length, // Producto-almacén
+      totalSKUs: productList.length, // Producto-establecimiento
       totalUnits: productList.reduce((sum, p) => sum + p.totalQuantity, 0),
       totalValue: productList.reduce((sum, p) => sum + p.totalCost, 0),
       totalLots: filteredLots.length,
@@ -1288,7 +1288,7 @@ export class ReportsService {
     };
 
     // ========== 4. AGRUPACIONES ==========
-    // Por Almacén
+    // Por Establecimiento
     const byWarehouse = this.groupInventoryByWarehouse(productList);
     
     // Por Categoría
@@ -1592,7 +1592,7 @@ export class ReportsService {
     // Resumen
     lines.push("=== RESUMEN ===");
     lines.push(`Total Productos,${report.summary.totalProducts}`);
-    lines.push(`Total SKUs (Producto-Almacén),${report.summary.totalSKUs}`);
+    lines.push(`Total SKUs (Producto-Establecimiento),${report.summary.totalSKUs}`);
     lines.push(`Total Unidades,${report.summary.totalUnits}`);
     lines.push(`Valor Total (CUP),${report.summary.totalValue}`);
     lines.push(`Total Lotes,${report.summary.totalLots}`);
@@ -1602,9 +1602,9 @@ export class ReportsService {
     lines.push(`Productos en Punto de Reorden,${report.summary.productsAtReorder}`);
     lines.push("");
 
-    // Por Almacén
-    lines.push("=== POR ALMACÉN ===");
-    lines.push("Almacén,Cantidad Productos,Unidades,Valor (CUP)");
+    // Por Establecimiento
+    lines.push("=== POR Establecimiento ===");
+    lines.push("Establecimiento,Cantidad Productos,Unidades,Valor (CUP)");
     report.byWarehouse.forEach(w => {
       lines.push(`${w.warehouseName},${w.productCount},${w.totalUnits},${w.totalValue}`);
     });
@@ -1628,7 +1628,7 @@ export class ReportsService {
 
     // Detalle de productos
     lines.push("=== DETALLE DE PRODUCTOS ===");
-    lines.push("Código,Producto,Categoría,Almacén,Unidad,Cantidad,Costo Promedio,Costo Total,Stock Mínimo,Estado,Lotes,Días Máx");
+    lines.push("Código,Producto,Categoría,Establecimiento,Unidad,Cantidad,Costo Promedio,Costo Total,Stock Mínimo,Estado,Lotes,Días Máx");
     report.items.forEach(item => {
       lines.push(`${item.productCode},${item.productName},${item.categoryName},${item.warehouseName},${item.unitShortName},${item.quantity},${item.avgUnitCost},${item.totalCost},${item.minStock},${item.status},${item.lotCount},${item.maxDaysInInventory}`);
     });

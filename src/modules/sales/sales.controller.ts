@@ -181,7 +181,7 @@ export const getSalesMarginReport = async (req: Request, res: Response) => {
 
 // ========== ENDPOINTS PARA CREAR VENTAS ==========
 
-// Obtener productos disponibles para vender en un almacén
+// Obtener productos disponibles para vender en un establecimiento
 export const getAvailableProducts = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;
@@ -201,7 +201,7 @@ export const getAvailableProducts = async (req: Request, res: Response) => {
   }
 };
 
-// Obtener almacenes disponibles del usuario
+// Obtener establecimientos disponibles del usuario
 export const getUserWarehouses = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;

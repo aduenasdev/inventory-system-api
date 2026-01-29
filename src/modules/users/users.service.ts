@@ -127,7 +127,7 @@ export async function createUser(data: {
       .where(inArray(warehouses.id, data.warehouseIds));
     
     if (existingWarehouses.length !== data.warehouseIds.length) {
-      throw new NotFoundError("Al menos un almacén de los seleccionados no existe");
+      throw new NotFoundError("Al menos un establecimiento de los seleccionados no existe");
     }
   }
   
@@ -332,7 +332,7 @@ export async function updateUser(userId: number, data: {
         .where(inArray(warehouses.id, data.warehouseIds));
       
       if (existingWarehouses.length !== data.warehouseIds.length) {
-        throw new NotFoundError("Al menos un almacén de los seleccionados no existe");
+        throw new NotFoundError("Al menos un establecimiento de los seleccionados no existe");
       }
     }
     

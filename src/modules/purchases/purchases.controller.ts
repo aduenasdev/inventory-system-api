@@ -105,7 +105,7 @@ export const getCancelledPurchasesReport = async (
 
 // ========== ENDPOINTS AUXILIARES PARA FRONTEND ==========
 
-// Obtener almacenes disponibles del usuario
+// Obtener establecimientos disponibles del usuario
 export const getUserWarehouses = async (req: Request, res: Response) => {
   try {
     const userId = (res.locals.user as any).id;

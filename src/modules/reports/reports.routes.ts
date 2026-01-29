@@ -28,7 +28,7 @@ import {
 const router = Router();
 
 // ========== REPORTE 1: STOCK ACTUAL ==========
-// GET /reports/stock - Stock actual de productos por almacén
+// GET /reports/stock - Stock actual de productos por establecimiento
 // Filtros: warehouseId (opcional), productId (opcional), categoryId (opcional)
 router.get(
   "/stock",
