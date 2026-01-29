@@ -59,7 +59,7 @@ async function main() {
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_login TIMESTAMP NULL,
-      mail_password VARCHAR(128) DEFAULT NULL COMMENT 'Password SHA512-CRYPT para correo',
+      mail_password VARCHAR(255) DEFAULT NULL COMMENT 'Password SHA512-CRYPT para correo',
       maildir VARCHAR(255) DEFAULT NULL COMMENT 'Ruta relativa del buzón'
     )
   `);

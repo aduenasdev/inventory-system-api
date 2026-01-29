@@ -10,6 +10,6 @@ export const users = mysqlTable("users", {
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLogin: timestamp("last_login"),
-  mailPassword: varchar("mail_password", { length: 128 }),
-  maildir: varchar("maildir", { length: 255 }),
+  mailPassword: varchar("mail_password", { length: 255 }),
+  maildir: varchar("maildir", { length: 255 })
 });
