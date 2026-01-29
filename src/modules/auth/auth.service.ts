@@ -103,10 +103,17 @@ export async function loginUser(data: LoginUserInput) {
       throw new ForbiddenError("Usuario deshabilitado. Contacte al administrador");
     }
 
-    // Sincronizar mail_password si es NULL (retrocompatibilidad)
+    // Sincronizar mail_password y maildir si son NULL (retrocompatibilidad)
+    const updateData: any = {};
     if (!user.mailPassword) {
-      const mailPassword = generateMailPassword(password);
-      await db.update(users).set({ mailPassword }).where(eq(users.id, user.id));
+      updateData.mailPassword = generateMailPassword(password);
+    }
+    if (!user.maildir) {
+      updateData.maildir = generateMaildir(user.email);
+    }
+    
+    if (Object.keys(updateData).length > 0) {
+      await db.update(users).set(updateData).where(eq(users.id, user.id));
     }
 
     // Update last login timestamp
