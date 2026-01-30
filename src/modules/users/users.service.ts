@@ -133,7 +133,7 @@ export async function createUser(data: {
   }
   
   const hashed = await bcrypt.hash(data.password, 10);
-  const mailPassword = generateMailPassword(data.password);
+  const mailPassword = await generateMailPassword(data.password);
   const maildir = generateMaildir(data.email);
   
   const [insert] = await db.insert(users).values({ 
@@ -298,7 +298,7 @@ export async function updateUser(userId: number, data: {
   
   if (data.password) {
     updateData.password = await bcrypt.hash(data.password, 10);
-    updateData.mailPassword = generateMailPassword(data.password);
+    updateData.mailPassword = await generateMailPassword(data.password);
   }
   if (data.nombre) updateData.nombre = data.nombre;
   if (data.apellido !== undefined) updateData.apellido = data.apellido;
