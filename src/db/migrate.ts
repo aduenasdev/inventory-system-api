@@ -616,7 +616,7 @@ async function main() {
 
   // Crear usuario administrador
   const hashedPassword = await bcrypt.hash("Admin123", 10);
-  const mailPassword = generateMailPassword("Admin123");
+  const mailPassword = await generateMailPassword("Admin123");
   const maildir = generateMaildir("admin@sasinversus.com");
   const [adminUserResult] = (await db.execute(
     sql`INSERT INTO users (email, password, nombre, mail_password, maildir) VALUES (${"admin@sasinversus.com"}, ${hashedPassword}, ${"Admin"}, ${mailPassword}, ${maildir})`
