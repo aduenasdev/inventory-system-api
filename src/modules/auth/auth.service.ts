@@ -23,7 +23,7 @@ export async function registerUser(data: RegisterUserInput) {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const mailPassword = generateMailPassword(password);
+  const mailPassword = await generateMailPassword(password);
   const maildir = generateMaildir(email);
 
   const [newUser] = await db.insert(users).values({
@@ -227,7 +227,7 @@ export async function changePassword(userId: number, data: ChangePasswordInput) 
 
   // Hash new password
   const hashedPassword = await bcrypt.hash(newPassword, 10);
-  const mailPassword = generateMailPassword(newPassword);
+  const mailPassword = await generateMailPassword(newPassword);
 
   // Update password and mail password
   await db.update(users).set({ password: hashedPassword, mailPassword: mailPassword }).where(eq(users.id, userId));
